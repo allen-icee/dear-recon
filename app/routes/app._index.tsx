@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -13,6 +14,11 @@ import {
   Text,
   Badge,
   EmptyState,
+  Grid,
+  BlockStack,
+  Modal,
+  ChoiceList,
+  Link,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -22,21 +28,22 @@ import { runReconciliationScan } from "../services/reconciliation.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  // Fetch all open reconciliation exceptions for this shop
+  // Fetch all reconciliation exceptions for this shop
   const rawExceptions = await prisma.reconciliationException.findMany({
     where: {
       shop: session.shop,
-      status: "OPEN",
     },
-    orderBy: {
-      estimatedExposure: "desc",
-    },
+    orderBy: [
+      { status: "asc" },
+      { estimatedExposure: "desc" },
+    ],
   });
 
-  // Explicitly serialize Prisma Decimals to strings in the backend
+  // Explicitly serialize Prisma Decimals and Dates to strings in the backend
   const exceptions = rawExceptions.map((ex) => ({
     ...ex,
     estimatedExposure: ex.estimatedExposure.toString(),
+    createdAt: ex.createdAt.toISOString(),
   }));
 
   return { exceptions };
@@ -48,17 +55,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const intent = formData.get("intent");
   const exceptionId = formData.get("exceptionId")?.toString();
+  const resolutionReason = formData.get("resolutionReason")?.toString();
 
   // Handle the 'resolve' action securely bound to the current shop
   if (intent === "resolve" && exceptionId) {
     await prisma.reconciliationException.updateMany({
       where: {
-        id: exceptionId, // FIXED: Prisma is expecting a String UUID here
+        id: exceptionId,
         shop: session.shop,
       },
       data: {
         status: "RESOLVED",
         resolvedAt: new Date(),
+        resolutionReason: resolutionReason,
       },
     });
     return { success: true };
@@ -77,7 +86,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 interface ExceptionUI {
-  id: string; // FIXED: ID is a string in the database
+  id: string;
   shop: string;
   orderId: string;
   orderName: string;
@@ -90,6 +99,9 @@ interface ExceptionUI {
   estimatedExposure: string;
   currencyCode: string;
   status: string;
+  createdAt: string;
+  resolutionReason: string | null;
+  resolvedBy: string | null;
 }
 
 export default function Index() {
@@ -97,80 +109,105 @@ export default function Index() {
   const fetcher = useFetcher();
   const syncFetcher = useFetcher();
 
-  const isSyncing =
-    syncFetcher.state === "submitting" || syncFetcher.state === "loading";
+  const isSyncing = syncFetcher.state === "submitting" || syncFetcher.state === "loading";
+  const isResolving = fetcher.state === "submitting" || fetcher.state === "loading";
+
+  // Modal State
+  const [activeExceptionId, setActiveExceptionId] = useState<string | null>(null);
+  const [resolutionReason, setResolutionReason] = useState<string[]>(["Restocked"]);
 
   const handleRunScan = () => {
     const formData = new FormData();
     formData.append("intent", "sync");
-
-    syncFetcher.submit(formData, {
-      method: "POST",
-      action: "?index"
-    });
+    syncFetcher.submit(formData, { method: "POST", action: "?index" });
   };
+
+  const handleResolveSubmit = useCallback(() => {
+    if (!activeExceptionId) return;
+
+    const formData = new FormData();
+    formData.append("intent", "resolve");
+    formData.append("exceptionId", activeExceptionId);
+    formData.append("resolutionReason", resolutionReason[0]);
+
+    fetcher.submit(formData, { method: "POST", action: "?index" });
+    setActiveExceptionId(null);
+  }, [activeExceptionId, resolutionReason, fetcher]);
+
+  const handleModalClose = useCallback(() => {
+    setActiveExceptionId(null);
+  }, []);
+
+  // Metrics Calculation
+  const openExceptionsCount = exceptions.length;
+  const estimatedCostExposure = exceptions.reduce((acc, ex) => acc + Number(ex.estimatedExposure), 0);
+  const missingItems = exceptions.reduce((acc, ex) => acc + ex.discrepancyQuantity, 0);
+
+  const formattedTotalExposure = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: exceptions.length > 0 ? exceptions[0].currencyCode : "USD",
+  }).format(estimatedCostExposure);
 
   const emptyStateMarkup = (
     <EmptyState
-      heading="You're all caught up!"
-      action={{ content: "Refresh Data", onAction: () => window.location.reload() }}
+      heading="✓ You're all caught up"
+      action={{ content: "Run Scan", onAction: handleRunScan }}
       image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
     >
-      <p>All refunds and returns are fully reconciled.</p>
+      <p>DearRecon checked your recent refunds and returns. No reconciliation exceptions were found.</p>
     </EmptyState>
   );
 
-  const rowMarkup = exceptions.map(
-    (
-      {
-        id,
-        orderName,
-        sku,
-        refundQuantity,
-        returnQuantity,
-        discrepancyQuantity,
-        estimatedExposure,
-        currencyCode,
-      },
-      index
-    ) => {
-      // Safely format the string exposure back into a localized currency number
-      const formattedExposure = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: currencyCode,
-      }).format(Number(estimatedExposure));
+  const rowMarkup = exceptions.map((ex, index) => {
+    const formattedExposure = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: ex.currencyCode,
+    }).format(Number(ex.estimatedExposure));
 
-      return (
-        <IndexTable.Row id={id} key={id} position={index}>
-          <IndexTable.Cell>
+    const ageInDays = Math.floor((new Date().getTime() - new Date(ex.createdAt).getTime()) / (1000 * 3600 * 24));
+
+    // Convert gid://shopify/Order/123 to just 123 for the URL
+    const numericOrderId = ex.orderId.split("/").pop();
+
+    return (
+      <IndexTable.Row id={ex.id} key={ex.id} position={index}>
+        <IndexTable.Cell>
+          <Link url={`shopify:admin/orders/${numericOrderId}`} target="_parent">
             <Text variant="bodyMd" fontWeight="bold" as="span">
-              {orderName}
+              {ex.orderName}
             </Text>
-          </IndexTable.Cell>
-          <IndexTable.Cell>{sku || "N/A"}</IndexTable.Cell>
-          <IndexTable.Cell>{String(refundQuantity)}</IndexTable.Cell>
-          <IndexTable.Cell>{String(returnQuantity)}</IndexTable.Cell>
-          <IndexTable.Cell>
-            <Badge tone="critical">{`${discrepancyQuantity} missing`}</Badge>
-          </IndexTable.Cell>
-          <IndexTable.Cell>
-            <Text variant="bodyMd" tone="critical" as="span">
-              {formattedExposure}
-            </Text>
-          </IndexTable.Cell>
-          <IndexTable.Cell>
-            <fetcher.Form method="POST" action="?index">
-              <input type="hidden" name="intent" value="resolve" />
-              <input type="hidden" name="exceptionId" value={id} />
-              <Button submit size="micro">
-                Resolve
-              </Button>
-            </fetcher.Form>
-          </IndexTable.Cell>
-        </IndexTable.Row>
-      );
-    }
-  );
+          </Link>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          <Badge tone="warning">Missing Return</Badge>
+        </IndexTable.Cell>
+        <IndexTable.Cell>{ex.sku || "N/A"}</IndexTable.Cell>
+        <IndexTable.Cell>
+          <Text variant="bodyMd" fontWeight="bold" tone="critical" as="span">
+            {ex.discrepancyQuantity}
+          </Text>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          {formattedExposure}
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          {ageInDays === 0 ? "Today" : `${ageInDays} day${ageInDays > 1 ? "s" : ""}`}
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          <Badge tone="info">{ex.status}</Badge>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
+          {ex.status === "OPEN" ? (
+            <Button size="micro" onClick={() => setActiveExceptionId(ex.id)}>
+              Resolve
+            </Button>
+          ) : ex.status === "RESOLVED" ? (
+            <Badge tone="success">Resolved: {ex.resolutionReason}</Badge>
+          ) : null}
+        </IndexTable.Cell>
+      </IndexTable.Row>
+    );
+  });
 
   return (
     <Page
@@ -183,30 +220,94 @@ export default function Index() {
     >
       <Layout>
         <Layout.Section>
-          <Card padding="0">
-            {exceptions.length === 0 ? (
-              emptyStateMarkup
-            ) : (
-              <IndexTable
-                resourceName={{ singular: "exception", plural: "exceptions" }}
-                itemCount={exceptions.length}
-                headings={[
-                  { title: "Order" },
-                  { title: "SKU" },
-                  { title: "Refund Qty" },
-                  { title: "Return Qty" },
-                  { title: "Discrepancy" },
-                  { title: "Exposure" },
-                  { title: "Action" },
-                ]}
-                selectable={false}
-              >
-                {rowMarkup}
-              </IndexTable>
-            )}
-          </Card>
+          <BlockStack gap="400">
+            {/* Top Metrics Cards */}
+            <Grid>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text as="h3" variant="headingSm" tone="subdued">Open Exceptions</Text>
+                    <Text as="p" variant="headingLg">{openExceptionsCount}</Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text as="h3" variant="headingSm" tone="subdued">Estimated Cost Exposure</Text>
+                    <Text as="p" variant="headingLg" tone="critical">{formattedTotalExposure}</Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text as="h3" variant="headingSm" tone="subdued">Missing Items</Text>
+                    <Text as="p" variant="headingLg">{missingItems}</Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+            </Grid>
+
+            {/* Exception Table */}
+            <Card padding="0">
+              {exceptions.length === 0 ? (
+                emptyStateMarkup
+              ) : (
+                <IndexTable
+                  resourceName={{ singular: "exception", plural: "exceptions" }}
+                  itemCount={exceptions.length}
+                  headings={[
+                    { title: "Order" },
+                    { title: "Issue" },
+                    { title: "Item" },
+                    { title: "Qty" },
+                    { title: "Exposure" },
+                    { title: "Age" },
+                    { title: "Status" },
+                    { title: "" }, // For the resolve button
+                  ]}
+                  selectable={false}
+                >
+                  {rowMarkup}
+                </IndexTable>
+              )}
+            </Card>
+          </BlockStack>
         </Layout.Section>
       </Layout>
+
+      {/* Resolution Modal */}
+      <Modal
+        open={activeExceptionId !== null}
+        onClose={handleModalClose}
+        title="Mark exception as resolved?"
+        primaryAction={{
+          content: "Submit Resolution",
+          onAction: handleResolveSubmit,
+          loading: isResolving,
+        }}
+        secondaryActions={[
+          {
+            content: "Cancel",
+            onAction: handleModalClose,
+          },
+        ]}
+      >
+        <Modal.Section>
+          <ChoiceList
+            title="Reason"
+            choices={[
+              { label: "Restocked", value: "Restocked" },
+              { label: "Manual adjustment", value: "Manual adjustment" },
+              { label: "False positive", value: "False positive" },
+              { label: "Other", value: "Other" },
+            ]}
+            selected={resolutionReason}
+            onChange={setResolutionReason}
+          />
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }

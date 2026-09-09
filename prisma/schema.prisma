@@ -58,6 +58,8 @@ model ReconciliationException {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   resolvedAt          DateTime?
+  resolvedBy          String?
+  resolutionReason    String?
 
   @@index([shop])
   @@index([orderId])

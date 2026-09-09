@@ -17,6 +17,12 @@ export const RECONCILIATION_QUERY = `
                 id
                 name
                 quantity
+                originalUnitPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
                 variant {
                   id
                   sku
@@ -127,11 +133,11 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
 
       if (discrepancyQuantity > 0) {
         const variant = lineItem.variant;
-        const unitCostAmount = variant?.inventoryItem?.unitCost?.amount || "0";
-        const currencyCode = variant?.inventoryItem?.unitCost?.currencyCode || "USD";
+        const priceAmount = lineItem.originalUnitPriceSet?.shopMoney?.amount || "0";
+        const currencyCode = lineItem.originalUnitPriceSet?.shopMoney?.currencyCode || "USD";
 
         // Decimal-safe math utilizing the utility class
-        const exposure = new Money(unitCostAmount, currencyCode).multiply(discrepancyQuantity);
+        const exposure = new Money(priceAmount, currencyCode).multiply(discrepancyQuantity);
 
         const existing = await prisma.reconciliationException.findFirst({
           where: { shop, orderId: order.id, lineItemId: lineItem.id }
@@ -149,7 +155,12 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
           discrepancyQuantity,
           estimatedExposure: exposure.toDecimal(),
           currencyCode,
-          status: "OPEN" // Always force open if a discrepancy is still actively detected on scan
+          status: existing?.status === "RESOLVED" ? "RESOLVED" : "OPEN",
+          ...(existing?.status === "RESOLVED" ? {
+            resolvedBy: existing.resolvedBy,
+            resolutionReason: existing.resolutionReason,
+            resolvedAt: existing.resolvedAt
+          } : {})
         };
 
         if (existing) {
