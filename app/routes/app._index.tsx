@@ -113,7 +113,7 @@ export default function Index() {
   const isResolving = fetcher.state === "submitting" || fetcher.state === "loading";
 
   // Modal State
-  const [activeExceptionId, setActiveExceptionId] = useState<string | null>(null);
+  const [activeException, setActiveException] = useState<ExceptionUI | null>(null);
   const [resolutionReason, setResolutionReason] = useState<string[]>(["Restocked"]);
 
   const handleRunScan = () => {
@@ -123,19 +123,19 @@ export default function Index() {
   };
 
   const handleResolveSubmit = useCallback(() => {
-    if (!activeExceptionId) return;
+    if (!activeException) return;
 
     const formData = new FormData();
     formData.append("intent", "resolve");
-    formData.append("exceptionId", activeExceptionId);
+    formData.append("exceptionId", activeException.id);
     formData.append("resolutionReason", resolutionReason[0]);
 
     fetcher.submit(formData, { method: "POST", action: "?index" });
-    setActiveExceptionId(null);
-  }, [activeExceptionId, resolutionReason, fetcher]);
+    setActiveException(null);
+  }, [activeException, resolutionReason, fetcher]);
 
   const handleModalClose = useCallback(() => {
-    setActiveExceptionId(null);
+    setActiveException(null);
   }, []);
 
   // Metrics Calculation
@@ -197,13 +197,9 @@ export default function Index() {
           <Badge tone="info">{ex.status}</Badge>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          {ex.status === "OPEN" ? (
-            <Button size="micro" onClick={() => setActiveExceptionId(ex.id)}>
-              Resolve
-            </Button>
-          ) : ex.status === "RESOLVED" ? (
-            <Badge tone="success">{`Resolved: ${ex.resolutionReason || "Unknown"}`}</Badge>
-          ) : null}
+          <Button size="micro" onClick={() => setActiveException(ex)}>
+            {ex.status === "OPEN" ? "Investigate" : "View"}
+          </Button>
         </IndexTable.Cell>
       </IndexTable.Row>
     );
@@ -279,33 +275,103 @@ export default function Index() {
 
       {/* Resolution Modal */}
       <Modal
-        open={activeExceptionId !== null}
+        open={activeException !== null}
         onClose={handleModalClose}
-        title="Mark exception as resolved?"
-        primaryAction={{
-          content: "Submit Resolution",
-          onAction: handleResolveSubmit,
-          loading: isResolving,
-        }}
+        title="Exception Details"
+        primaryAction={
+          activeException?.status === "OPEN"
+            ? {
+                content: "Submit Resolution",
+                onAction: handleResolveSubmit,
+                loading: isResolving,
+              }
+            : undefined
+        }
         secondaryActions={[
           {
-            content: "Cancel",
+            content: "Close",
             onAction: handleModalClose,
           },
         ]}
       >
         <Modal.Section>
-          <ChoiceList
-            title="Reason"
-            choices={[
-              { label: "Restocked", value: "Restocked" },
-              { label: "Manual adjustment", value: "Manual adjustment" },
-              { label: "False positive", value: "False positive" },
-              { label: "Other", value: "Other" },
-            ]}
-            selected={resolutionReason}
-            onChange={setResolutionReason}
-          />
+          {activeException && (
+            <BlockStack gap="400">
+              <BlockStack gap="200">
+                <Text variant="headingMd" as="h3">
+                  What Happened
+                </Text>
+                <Grid>
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" tone="subdued">Refunded Quantity:</Text>
+                  </Grid.Cell>
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" fontWeight="bold">{activeException.refundQuantity}</Text>
+                  </Grid.Cell>
+                  
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" tone="subdued">Returned/Restocked Quantity:</Text>
+                  </Grid.Cell>
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" fontWeight="bold">{activeException.returnQuantity}</Text>
+                  </Grid.Cell>
+                  
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" tone="subdued">Missing Reconciliation:</Text>
+                  </Grid.Cell>
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" tone="critical" fontWeight="bold">{activeException.discrepancyQuantity}</Text>
+                  </Grid.Cell>
+                  
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" tone="subdued">Total Financial Exposure:</Text>
+                  </Grid.Cell>
+                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
+                    <Text variant="bodyMd" as="p" fontWeight="bold">
+                      {new Intl.NumberFormat("en-US", {
+                        style: "currency",
+                        currency: activeException.currencyCode,
+                      }).format(Number(activeException.estimatedExposure))}
+                    </Text>
+                  </Grid.Cell>
+                </Grid>
+              </BlockStack>
+
+              <Button
+                variant="primary"
+                url={`shopify:admin/orders/${activeException.orderId.split("/").pop()}`}
+                target="_parent"
+              >
+                Open Order in Shopify
+              </Button>
+
+              {activeException.status === "OPEN" ? (
+                <ChoiceList
+                  title="Resolution Reason"
+                  choices={[
+                    { label: "Restocked", value: "Restocked" },
+                    { label: "Manual adjustment", value: "Manual adjustment" },
+                    { label: "False positive", value: "False positive" },
+                    { label: "Other", value: "Other" },
+                  ]}
+                  selected={resolutionReason}
+                  onChange={setResolutionReason}
+                />
+              ) : (
+                <BlockStack gap="200">
+                  <Text variant="headingMd" as="h3">
+                    Resolution Details
+                  </Text>
+                  <Text variant="bodyMd" as="p">
+                    Resolved By: {activeException.resolvedBy || "System"}
+                  </Text>
+                  <Text variant="bodyMd" as="p">
+                    Reason: {activeException.resolutionReason}
+                  </Text>
+                </BlockStack>
+              )}
+            </BlockStack>
+          )}
         </Modal.Section>
       </Modal>
     </Page>
