@@ -160,7 +160,7 @@ export const RECONCILIATION_QUERY = `
   }
 `;
 
-async function processOrderReconciliation(order: any, shop: string) {
+async function processOrderReconciliation(order: any, shop: string, settings: { minimumExposure: number }) {
   let exceptionsCount = 0;
   const lineItems = order.lineItems.edges.map((e: any) => e.node);
   
@@ -203,7 +203,8 @@ async function processOrderReconciliation(order: any, shop: string) {
       // Decimal-safe math utilizing the utility class
       const exposure = new Money(priceAmount, currencyCode).multiply(discrepancyQuantity);
 
-      await prisma.reconciliationException.upsert({
+      if (exposure.toNumber() >= settings.minimumExposure) {
+        await prisma.reconciliationException.upsert({
         where: {
           shop_orderId_lineItemId: {
             shop,
@@ -233,6 +234,7 @@ async function processOrderReconciliation(order: any, shop: string) {
         }
       });
       exceptionsCount++;
+      }
     } else if (discrepancyQuantity <= 0) {
       // Zero Discrepancy Cleanup: Auto-resolve if quantities now match 
       // (e.g. physical return finally processed)
@@ -264,7 +266,18 @@ async function processOrderReconciliation(order: any, shop: string) {
  * Fetches recent orders with refunds, returns, and inventory costs,
  * compares the line item quantities, and upserts discrepancies to Prisma.
  */
-export async function runReconciliationScan(admin: AdminApiContext, shop: string, query: string = "updated_at:>=last_week") {
+export async function runReconciliationScan(admin: AdminApiContext, shop: string, query?: string) {
+  const dbSettings = await prisma.shopSettings.findUnique({ where: { shop } });
+  const settings = {
+    minimumExposure: dbSettings?.minimumExposure?.toNumber() || 0,
+    lookbackDays: dbSettings?.lookbackDays || 30,
+  };
+
+  if (!query) {
+    const lookbackDate = new Date(Date.now() - settings.lookbackDays * 24 * 60 * 60 * 1000);
+    query = `updated_at:>=${lookbackDate.toISOString()}`;
+  }
+
   const response = await admin.graphql(RECONCILIATION_QUERY, {
     variables: { query },
   });
@@ -279,7 +292,7 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
   let exceptionsCount = 0;
 
   for (const order of orders) {
-    exceptionsCount += await processOrderReconciliation(order, shop);
+    exceptionsCount += await processOrderReconciliation(order, shop, settings);
   }
 
   return { scannedOrders: orders.length, exceptionsCount };
@@ -289,6 +302,11 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
  * Fetches a single order by ID and processes it for discrepancies.
  */
 export async function runTargetedReconciliationScan(admin: AdminApiContext, shop: string, orderId: string) {
+  const dbSettings = await prisma.shopSettings.findUnique({ where: { shop } });
+  const settings = {
+    minimumExposure: dbSettings?.minimumExposure?.toNumber() || 0,
+  };
+
   const response = await admin.graphql(TARGETED_RECONCILIATION_QUERY, {
     variables: { id: orderId },
   });
@@ -304,7 +322,7 @@ export async function runTargetedReconciliationScan(admin: AdminApiContext, shop
     return { scannedOrders: 0, exceptionsCount: 0 };
   }
 
-  const exceptionsCount = await processOrderReconciliation(order, shop);
+  const exceptionsCount = await processOrderReconciliation(order, shop, settings);
 
   return { scannedOrders: 1, exceptionsCount };
 }
