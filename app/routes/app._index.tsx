@@ -202,7 +202,7 @@ export default function Index() {
               Resolve
             </Button>
           ) : ex.status === "RESOLVED" ? (
-            <Badge tone="success">Resolved: {ex.resolutionReason}</Badge>
+            <Badge tone="success">{`Resolved: ${ex.resolutionReason || "Unknown"}`}</Badge>
           ) : null}
         </IndexTable.Cell>
       </IndexTable.Row>

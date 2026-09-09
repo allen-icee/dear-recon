@@ -11,6 +11,7 @@ export const RECONCILIATION_QUERY = `
           name
           createdAt
           updatedAt
+          cancelledAt
           lineItems(first: 25) {
             edges {
               node {
@@ -45,6 +46,7 @@ export const RECONCILIATION_QUERY = `
                 node {
                   id
                   quantity
+                  restockType
                   lineItem {
                     id
                   }
@@ -107,7 +109,9 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
     for (const refund of order.refunds) {
       for (const refundLineItemEdge of refund.refundLineItems.edges) {
         const rl = refundLineItemEdge.node;
-        if (rl.lineItem?.id) {
+        // Ignore CANCEL restock types, as they represent unfulfilled items 
+        // that were cancelled, not shipped items that were refunded.
+        if (rl.lineItem?.id && rl.restockType !== "CANCEL") {
           refundMap.set(rl.lineItem.id, (refundMap.get(rl.lineItem.id) || 0) + rl.quantity);
         }
       }
@@ -131,6 +135,10 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
       const returnQuantity = returnMap.get(lineItem.id) || 0;
       const discrepancyQuantity = refundQuantity - returnQuantity;
 
+      const existing = await prisma.reconciliationException.findFirst({
+        where: { shop, orderId: order.id, lineItemId: lineItem.id }
+      });
+
       if (discrepancyQuantity > 0) {
         const variant = lineItem.variant;
         const priceAmount = lineItem.originalUnitPriceSet?.shopMoney?.amount || "0";
@@ -138,10 +146,6 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
 
         // Decimal-safe math utilizing the utility class
         const exposure = new Money(priceAmount, currencyCode).multiply(discrepancyQuantity);
-
-        const existing = await prisma.reconciliationException.findFirst({
-          where: { shop, orderId: order.id, lineItemId: lineItem.id }
-        });
 
         const recordData = {
           shop,
@@ -172,6 +176,22 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
           await prisma.reconciliationException.create({ data: recordData });
         }
         exceptionsCount++;
+      } else if (discrepancyQuantity <= 0 && existing && existing.status === "OPEN") {
+        // Zero Discrepancy Cleanup: Auto-resolve if quantities now match 
+        // (e.g. physical return finally processed)
+        await prisma.reconciliationException.update({
+          where: { id: existing.id },
+          data: {
+            status: "RESOLVED",
+            resolvedAt: new Date(),
+            resolutionReason: "Auto-resolved (Quantities matched)",
+            resolvedBy: "System",
+            refundQuantity,
+            returnQuantity,
+            discrepancyQuantity,
+            estimatedExposure: 0,
+          }
+        });
       }
     }
   }
