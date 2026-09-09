@@ -195,10 +195,6 @@ async function processOrderReconciliation(order: any, shop: string) {
     const returnQuantity = returnMap.get(lineItem.id) || 0;
     const discrepancyQuantity = refundQuantity - returnQuantity;
 
-    const existing = await prisma.reconciliationException.findFirst({
-      where: { shop, orderId: order.id, lineItemId: lineItem.id }
-    });
-
     if (discrepancyQuantity > 0) {
       const variant = lineItem.variant;
       const priceAmount = lineItem.originalUnitPriceSet?.shopMoney?.amount || "0";
@@ -207,40 +203,46 @@ async function processOrderReconciliation(order: any, shop: string) {
       // Decimal-safe math utilizing the utility class
       const exposure = new Money(priceAmount, currencyCode).multiply(discrepancyQuantity);
 
-      const recordData = {
-        shop,
-        orderId: order.id,
-        orderName: order.name,
-        lineItemId: lineItem.id,
-        variantId: variant?.id || "",
-        sku: variant?.sku || "",
-        refundQuantity,
-        returnQuantity,
-        discrepancyQuantity,
-        estimatedExposure: exposure.toDecimal(),
-        currencyCode,
-        status: existing?.status === "RESOLVED" ? "RESOLVED" : "OPEN",
-        ...(existing?.status === "RESOLVED" ? {
-          resolvedBy: existing.resolvedBy,
-          resolutionReason: existing.resolutionReason,
-          resolvedAt: existing.resolvedAt
-        } : {})
-      };
-
-      if (existing) {
-        await prisma.reconciliationException.update({
-          where: { id: existing.id },
-          data: recordData
-        });
-      } else {
-        await prisma.reconciliationException.create({ data: recordData });
-      }
+      await prisma.reconciliationException.upsert({
+        where: {
+          shop_orderId_lineItemId: {
+            shop,
+            orderId: order.id,
+            lineItemId: lineItem.id
+          }
+        },
+        update: {
+          refundQuantity,
+          returnQuantity,
+          discrepancyQuantity,
+          estimatedExposure: exposure.toDecimal(),
+        },
+        create: {
+          shop,
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId: lineItem.id,
+          variantId: variant?.id || "",
+          sku: variant?.sku || "",
+          refundQuantity,
+          returnQuantity,
+          discrepancyQuantity,
+          estimatedExposure: exposure.toDecimal(),
+          currencyCode,
+          status: "OPEN"
+        }
+      });
       exceptionsCount++;
-    } else if (discrepancyQuantity <= 0 && existing && existing.status === "OPEN") {
+    } else if (discrepancyQuantity <= 0) {
       // Zero Discrepancy Cleanup: Auto-resolve if quantities now match 
       // (e.g. physical return finally processed)
-      await prisma.reconciliationException.update({
-        where: { id: existing.id },
+      await prisma.reconciliationException.updateMany({
+        where: { 
+          shop, 
+          orderId: order.id, 
+          lineItemId: lineItem.id,
+          status: "OPEN"
+        },
         data: {
           status: "RESOLVED",
           resolvedAt: new Date(),

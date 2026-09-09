@@ -64,4 +64,6 @@ model ReconciliationException {
   @@index([shop])
   @@index([orderId])
   @@index([status])
+
+  @@unique([shop, orderId, lineItemId])
 }
