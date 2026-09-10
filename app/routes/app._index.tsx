@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useNavigation } from "react-router";
 import {
   Page,
   Layout,
@@ -24,7 +24,10 @@ import {
   TextField,
   Pagination,
   Box,
+  SkeletonBodyText,
+  Tooltip,
 } from "@shopify/polaris";
+import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
@@ -115,6 +118,20 @@ export default function Index() {
   const { exceptions } = useLoaderData<{ exceptions: ExceptionUI[] }>();
   const fetcher = useFetcher();
   const syncFetcher = useFetcher();
+  const nav = useNavigation();
+  const shopify = useAppBridge();
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.success) {
+      shopify.toast.show("Exception resolved");
+    }
+  }, [fetcher.state, fetcher.data, shopify]);
+
+  useEffect(() => {
+    if (syncFetcher.state === "idle" && syncFetcher.data?.success) {
+      shopify.toast.show("Manual scan complete");
+    }
+  }, [syncFetcher.state, syncFetcher.data, shopify]);
 
   const isSyncing = syncFetcher.state === "submitting" || syncFetcher.state === "loading";
   const isResolving = fetcher.state === "submitting" || fetcher.state === "loading";
@@ -224,22 +241,32 @@ export default function Index() {
       <IndexTable.Row id={ex.id} key={ex.id} position={index}>
         <IndexTable.Cell>
           <Link url={`shopify:admin/orders/${numericOrderId}`} target="_parent">
-            <Text variant="bodyMd" fontWeight="bold" as="span">
+            <Text variant="bodyMd" fontWeight="bold" as="span" truncate>
               {ex.orderName}
             </Text>
           </Link>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <Badge tone="warning">Missing Return</Badge>
+          <Tooltip content="Item was refunded but not physically returned to inventory">
+            <Text as="span">
+              <Badge tone="warning">Missing Return</Badge>
+            </Text>
+          </Tooltip>
         </IndexTable.Cell>
-        <IndexTable.Cell>{ex.sku || "N/A"}</IndexTable.Cell>
+        <IndexTable.Cell>
+          <Text truncate as="span">
+            {ex.sku || "N/A"}
+          </Text>
+        </IndexTable.Cell>
         <IndexTable.Cell>
           <Text variant="bodyMd" fontWeight="bold" tone="critical" as="span">
             {ex.discrepancyQuantity}
           </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          {formattedExposure}
+          <Text as="span" alignment="end">
+            {formattedExposure}
+          </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
           {ageInDays === 0 ? "Today" : `${ageInDays} day${ageInDays > 1 ? "s" : ""}`}
@@ -347,14 +374,24 @@ export default function Index() {
                             { title: "Issue" },
                             { title: "Item" },
                             { title: "Qty" },
-                            { title: "Exposure" },
+                            { title: "Exposure", alignment: "end" },
                             { title: "Age" },
                             { title: "Status" },
                             { title: "" }, // For the resolve button
                           ]}
                           selectable={false}
                         >
-                          {rowMarkup}
+                          {nav.state === "loading" || isSyncing ? (
+                            <IndexTable.Row id="loading-skeleton" position={0}>
+                              <IndexTable.Cell colSpan={8}>
+                                <Box paddingBlockStart="200" paddingBlockEnd="200">
+                                  <SkeletonBodyText lines={Math.max(paginatedExceptions.length, 5)} />
+                                </Box>
+                              </IndexTable.Cell>
+                            </IndexTable.Row>
+                          ) : (
+                            rowMarkup
+                          )}
                         </IndexTable>
                         {totalPages > 1 && (
                           <Box padding="400">
