@@ -84,7 +84,7 @@ export default function Settings() {
 
   return (
     <Page 
-      title="DEARRECON"
+      title="DearRecon"
       subtitle="Engine Configuration"
       backAction={{ content: 'Dashboard', url: '/app' }}
     >

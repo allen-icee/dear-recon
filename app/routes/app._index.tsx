@@ -19,6 +19,11 @@ import {
   Modal,
   ChoiceList,
   Link,
+  Tabs,
+  Banner,
+  TextField,
+  Pagination,
+  Box,
 } from "@shopify/polaris";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -34,7 +39,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     onFailure: async () => billing.request({ plan: MONTHLY_PLAN, isTest: true }),
   });
 
-  // Fetch all reconciliation exceptions for this shop
   const rawExceptions = await prisma.reconciliationException.findMany({
     where: {
       shop: session.shop,
@@ -45,7 +49,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ],
   });
 
-  // Explicitly serialize Prisma Decimals and Dates to strings in the backend
   const exceptions = rawExceptions.map((ex) => ({
     ...ex,
     estimatedExposure: ex.estimatedExposure.toString(),
@@ -63,7 +66,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const exceptionId = formData.get("exceptionId")?.toString();
   const resolutionReason = formData.get("resolutionReason")?.toString();
 
-  // Handle the 'resolve' action securely bound to the current shop
   if (intent === "resolve" && exceptionId) {
     await prisma.reconciliationException.updateMany({
       where: {
@@ -79,7 +81,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { success: true };
   }
 
-  // Handle the 'sync' action
   if (intent === "sync") {
     console.log("🚀 SCAN INITIATED! Fetching orders from Shopify...");
     const result = await runReconciliationScan(admin, session.shop);
@@ -118,9 +119,14 @@ export default function Index() {
   const isSyncing = syncFetcher.state === "submitting" || syncFetcher.state === "loading";
   const isResolving = fetcher.state === "submitting" || fetcher.state === "loading";
 
-  // Modal State
   const [activeException, setActiveException] = useState<ExceptionUI | null>(null);
   const [resolutionReason, setResolutionReason] = useState<string[]>(["Restocked"]);
+  
+  // UX Enhancements State
+  const [selectedTab, setSelectedTab] = useState(0);
+  const [queryValue, setQueryValue] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showBanner, setShowBanner] = useState(true);
 
   const handleRunScan = () => {
     const formData = new FormData();
@@ -130,12 +136,10 @@ export default function Index() {
 
   const handleResolveSubmit = useCallback(() => {
     if (!activeException) return;
-
     const formData = new FormData();
     formData.append("intent", "resolve");
     formData.append("exceptionId", activeException.id);
     formData.append("resolutionReason", resolutionReason[0]);
-
     fetcher.submit(formData, { method: "POST", action: "?index" });
     setActiveException(null);
   }, [activeException, resolutionReason, fetcher]);
@@ -144,10 +148,42 @@ export default function Index() {
     setActiveException(null);
   }, []);
 
-  // Metrics Calculation
-  const openExceptionsCount = exceptions.length;
-  const estimatedCostExposure = exceptions.reduce((acc, ex) => acc + Number(ex.estimatedExposure), 0);
-  const missingItems = exceptions.reduce((acc, ex) => acc + ex.discrepancyQuantity, 0);
+  const handleTabChange = useCallback((selectedTabIndex: number) => {
+    setSelectedTab(selectedTabIndex);
+    setCurrentPage(1); // Reset pagination on tab change
+  }, []);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setQueryValue(value);
+    setCurrentPage(1); // Reset pagination on search
+  }, []);
+
+  // Filter and Paginate Data
+  const filteredExceptions = exceptions.filter((ex) => {
+    const statusMatch = selectedTab === 0 ? ex.status === "OPEN" : ex.status === "RESOLVED";
+    if (!statusMatch) return false;
+
+    if (queryValue) {
+      const q = queryValue.toLowerCase();
+      const orderMatch = ex.orderName.toLowerCase().includes(q);
+      const skuMatch = (ex.sku || "").toLowerCase().includes(q);
+      return orderMatch || skuMatch;
+    }
+    return true;
+  });
+
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredExceptions.length / itemsPerPage);
+  const paginatedExceptions = filteredExceptions.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Metrics Calculation (only on OPEN items)
+  const openExceptions = exceptions.filter(ex => ex.status === "OPEN");
+  const openExceptionsCount = openExceptions.length;
+  const estimatedCostExposure = openExceptions.reduce((acc, ex) => acc + Number(ex.estimatedExposure), 0);
+  const missingItems = openExceptions.reduce((acc, ex) => acc + ex.discrepancyQuantity, 0);
 
   const formattedTotalExposure = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -156,32 +192,32 @@ export default function Index() {
 
   const emptyStateMarkup = (
     <EmptyState
-      heading="All caught up"
-      action={{ 
+      heading={selectedTab === 0 ? "Inbox Zero!" : "No history found"}
+      action={selectedTab === 0 ? { 
         content: "Run Manual Scan", 
         onAction: handleRunScan,
         loading: isSyncing
-      }}
+      } : undefined}
       image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
     >
       <BlockStack gap="200" inlineAlign="center">
         <Text as="p" variant="bodyMd">
-          No missing items or unrecorded refunds detected in your recent orders.
+          {selectedTab === 0 
+            ? "You have no pending reconciliation issues. Great job keeping everything restocked!"
+            : "There are no resolved reconciliation exceptions yet."}
         </Text>
-        <Badge tone="success">Real-time sync active</Badge>
+        {selectedTab === 0 && <Badge tone="success">Real-time sync active</Badge>}
       </BlockStack>
     </EmptyState>
   );
 
-  const rowMarkup = exceptions.map((ex, index) => {
+  const rowMarkup = paginatedExceptions.map((ex, index) => {
     const formattedExposure = new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: ex.currencyCode,
     }).format(Number(ex.estimatedExposure));
 
     const ageInDays = Math.floor((new Date().getTime() - new Date(ex.createdAt).getTime()) / (1000 * 3600 * 24));
-
-    // Convert gid://shopify/Order/123 to just 123 for the URL
     const numericOrderId = ex.orderId.split("/").pop();
 
     return (
@@ -209,7 +245,7 @@ export default function Index() {
           {ageInDays === 0 ? "Today" : `${ageInDays} day${ageInDays > 1 ? "s" : ""}`}
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <Badge tone="info">{ex.status}</Badge>
+          <Badge tone={ex.status === "OPEN" ? "info" : "success"}>{ex.status}</Badge>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <Button size="micro" onClick={() => setActiveException(ex)}>
@@ -222,7 +258,7 @@ export default function Index() {
 
   return (
     <Page
-      title="DEARRECON"
+      title="DearRecon"
       subtitle="Refund & Return Reconciliation"
       primaryAction={{
         content: "Run Daily Scan",
@@ -230,64 +266,118 @@ export default function Index() {
         onAction: handleRunScan,
       }}
     >
-      <Layout>
-        <Layout.Section>
-          <BlockStack gap="400">
-            {/* Top Metrics Cards */}
-            <Grid>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h3" variant="headingSm" tone="subdued">Open Exceptions</Text>
-                    <Text as="p" variant="headingLg">{openExceptionsCount}</Text>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h3" variant="headingSm" tone="subdued">Estimated Cost Exposure</Text>
-                    <Text as="p" variant="headingLg" tone="critical">{formattedTotalExposure}</Text>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h3" variant="headingSm" tone="subdued">Missing Items</Text>
-                    <Text as="p" variant="headingLg">{missingItems}</Text>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-            </Grid>
+      <BlockStack gap="400">
+        {showBanner && (
+          <Banner
+            title="How it works"
+            tone="info"
+            onDismiss={() => setShowBanner(false)}
+          >
+            <Text as="p">
+              DearRecon automatically scans your store for refunds that haven't been restocked. 
+              Click on any open exception to investigate the financial exposure, verify the details in Shopify, 
+              and mark it as resolved once the inventory is corrected.
+            </Text>
+          </Banner>
+        )}
 
-            {/* Exception Table */}
-            <Card padding="0">
-              {exceptions.length === 0 ? (
-                emptyStateMarkup
-              ) : (
-                <IndexTable
-                  resourceName={{ singular: "exception", plural: "exceptions" }}
-                  itemCount={exceptions.length}
-                  headings={[
-                    { title: "Order" },
-                    { title: "Issue" },
-                    { title: "Item" },
-                    { title: "Qty" },
-                    { title: "Exposure" },
-                    { title: "Age" },
-                    { title: "Status" },
-                    { title: "" }, // For the resolve button
+        <Layout>
+          <Layout.Section>
+            <BlockStack gap="400">
+              {/* Top Metrics Cards */}
+              <Grid>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
+                  <Card>
+                    <BlockStack gap="200">
+                      <Text as="h3" variant="headingSm" tone="subdued">Open Exceptions</Text>
+                      <Text as="p" variant="headingLg">{openExceptionsCount}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
+                  <Card>
+                    <BlockStack gap="200">
+                      <Text as="h3" variant="headingSm" tone="subdued">Estimated Cost Exposure</Text>
+                      <Text as="p" variant="headingLg" tone="critical">{formattedTotalExposure}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
+                  <Card>
+                    <BlockStack gap="200">
+                      <Text as="h3" variant="headingSm" tone="subdued">Missing Items</Text>
+                      <Text as="p" variant="headingLg">{missingItems}</Text>
+                    </BlockStack>
+                  </Card>
+                </Grid.Cell>
+              </Grid>
+
+              {/* Exception Table */}
+              <Card padding="0">
+                <Tabs
+                  tabs={[
+                    { id: 'open', content: 'Action Required', accessibilityLabel: 'Open exceptions' },
+                    { id: 'resolved', content: 'Audit History', accessibilityLabel: 'Resolved exceptions' },
                   ]}
-                  selectable={false}
+                  selected={selectedTab}
+                  onSelect={handleTabChange}
                 >
-                  {rowMarkup}
-                </IndexTable>
-              )}
-            </Card>
-          </BlockStack>
-        </Layout.Section>
-      </Layout>
+                  <Box padding="400" paddingBlockEnd="0">
+                    <TextField
+                      label="Search exceptions"
+                      labelHidden
+                      value={queryValue}
+                      onChange={handleSearchChange}
+                      placeholder="Search by order ID or SKU"
+                      autoComplete="off"
+                      clearButton
+                      onClearButtonClick={() => handleSearchChange('')}
+                    />
+                  </Box>
+                  <Box paddingBlockStart="400">
+                    {filteredExceptions.length === 0 ? (
+                      emptyStateMarkup
+                    ) : (
+                      <>
+                        <IndexTable
+                          resourceName={{ singular: "exception", plural: "exceptions" }}
+                          itemCount={paginatedExceptions.length}
+                          headings={[
+                            { title: "Order" },
+                            { title: "Issue" },
+                            { title: "Item" },
+                            { title: "Qty" },
+                            { title: "Exposure" },
+                            { title: "Age" },
+                            { title: "Status" },
+                            { title: "" }, // For the resolve button
+                          ]}
+                          selectable={false}
+                        >
+                          {rowMarkup}
+                        </IndexTable>
+                        {totalPages > 1 && (
+                          <Box padding="400">
+                            <BlockStack inlineAlign="center">
+                              <Pagination
+                                hasPrevious={currentPage > 1}
+                                onPrevious={() => setCurrentPage((prev) => prev - 1)}
+                                hasNext={currentPage < totalPages}
+                                onNext={() => setCurrentPage((prev) => prev + 1)}
+                                label={`${currentPage} of ${totalPages}`}
+                              />
+                            </BlockStack>
+                          </Box>
+                        )}
+                      </>
+                    )}
+                  </Box>
+                </Tabs>
+              </Card>
+            </BlockStack>
+          </Layout.Section>
+        </Layout>
+      </BlockStack>
 
       {/* Resolution Modal */}
       <Modal
