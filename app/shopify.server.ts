@@ -15,6 +15,7 @@ import type { BillingConfigItem } from "@shopify/shopify-api";
 
 const monthlyPlanConfig: BillingConfigItem = {
   replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
+  trialDays: 7,
   lineItems: [
     {
       amount: 9.00,

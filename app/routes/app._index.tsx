@@ -26,21 +26,39 @@ import {
   Box,
   SkeletonBodyText,
   Tooltip,
+  InlineStack,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
 import { runReconciliationScan } from "../services/reconciliation.server";
+import { DashboardEmptyState } from "../components/dashboard/DashboardEmptyState";
+import { OnboardingBanner } from "../components/dashboard/OnboardingBanner";
+import { ExceptionDetailModal, ExceptionUI } from "../components/dashboard/ExceptionDetailModal";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
 
-  await billing.require({
-    plans: [MONTHLY_PLAN],
-    isTest: true,
-    onFailure: async () => billing.request({ plan: MONTHLY_PLAN, isTest: true }),
+  let settings = await prisma.shopSettings.findUnique({
+    where: { shop: session.shop },
   });
+
+  if (!settings) {
+    settings = await prisma.shopSettings.create({
+      data: { shop: session.shop },
+    });
+  }
+
+  const planType = settings.planType;
+  let cooldownRemaining = 0;
+  
+  if (planType === "FREE" && settings.lastManualScanAt) {
+    const elapsed = Date.now() - new Date(settings.lastManualScanAt).getTime();
+    if (elapsed < 86400000) {
+      cooldownRemaining = 86400000 - elapsed;
+    }
+  }
 
   const rawExceptions = await prisma.reconciliationException.findMany({
     where: {
@@ -58,7 +76,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     createdAt: ex.createdAt.toISOString(),
   }));
 
-  return { exceptions };
+  return { exceptions, planType, cooldownRemaining };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -85,9 +103,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (intent === "sync") {
+    let settings = await prisma.shopSettings.findUnique({
+      where: { shop: session.shop },
+    });
+    
+    if (!settings) {
+      settings = await prisma.shopSettings.create({
+        data: { shop: session.shop },
+      });
+    }
+
+    if (settings.planType === "FREE" && settings.lastManualScanAt) {
+      const elapsed = Date.now() - new Date(settings.lastManualScanAt).getTime();
+      if (elapsed < 86400000) {
+        return { success: false, error: "Cooldown active", remainingTime: 86400000 - elapsed };
+      }
+    }
+
     console.log("🚀 SCAN INITIATED! Fetching orders from Shopify...");
     const result = await runReconciliationScan(admin, session.shop);
     console.log("✅ SCAN COMPLETE! Found:", result);
+    
+    await prisma.shopSettings.update({
+      where: { shop: session.shop },
+      data: { lastManualScanAt: new Date() },
+    });
+
     return { success: true, result };
   }
 
@@ -95,27 +136,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   throw new Response("Bad Request", { status: 400 });
 };
 
-interface ExceptionUI {
-  id: string;
-  shop: string;
-  orderId: string;
-  orderName: string;
-  lineItemId: string;
-  variantId: string;
-  sku: string | null;
-  refundQuantity: number;
-  returnQuantity: number;
-  discrepancyQuantity: number;
-  estimatedExposure: string;
-  currencyCode: string;
-  status: string;
-  createdAt: string;
-  resolutionReason: string | null;
-  resolvedBy: string | null;
-}
+
 
 export default function Index() {
-  const { exceptions } = useLoaderData<{ exceptions: ExceptionUI[] }>();
+  const { exceptions, planType, cooldownRemaining } = useLoaderData<{ exceptions: ExceptionUI[], planType: string, cooldownRemaining: number }>();
   const fetcher = useFetcher();
   const syncFetcher = useFetcher();
   const nav = useNavigation();
@@ -137,7 +161,6 @@ export default function Index() {
   const isResolving = fetcher.state === "submitting" || fetcher.state === "loading";
 
   const [activeException, setActiveException] = useState<ExceptionUI | null>(null);
-  const [resolutionReason, setResolutionReason] = useState<string[]>(["Restocked"]);
   
   // UX Enhancements State
   const [selectedTab, setSelectedTab] = useState(0);
@@ -145,21 +168,39 @@ export default function Index() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showBanner, setShowBanner] = useState(true);
 
+  const [remainingTime, setRemainingTime] = useState(cooldownRemaining);
+
+  useEffect(() => {
+    if (remainingTime > 0) {
+      const interval = setInterval(() => {
+        setRemainingTime(prev => Math.max(0, prev - 1000));
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [remainingTime]);
+
+  const formatTime = (ms: number) => {
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+    const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  };
+
+  const isCooldownActive = planType === "FREE" && remainingTime > 0;
+
   const handleRunScan = () => {
     const formData = new FormData();
     formData.append("intent", "sync");
     syncFetcher.submit(formData, { method: "POST", action: "?index" });
   };
 
-  const handleResolveSubmit = useCallback(() => {
-    if (!activeException) return;
+  const handleResolveSubmit = useCallback((exceptionId: string, reason: string) => {
     const formData = new FormData();
     formData.append("intent", "resolve");
-    formData.append("exceptionId", activeException.id);
-    formData.append("resolutionReason", resolutionReason[0]);
+    formData.append("exceptionId", exceptionId);
+    formData.append("resolutionReason", reason);
     fetcher.submit(formData, { method: "POST", action: "?index" });
     setActiveException(null);
-  }, [activeException, resolutionReason, fetcher]);
+  }, [fetcher]);
 
   const handleModalClose = useCallback(() => {
     setActiveException(null);
@@ -207,26 +248,7 @@ export default function Index() {
     currency: exceptions.length > 0 ? exceptions[0].currencyCode : "USD",
   }).format(estimatedCostExposure);
 
-  const emptyStateMarkup = (
-    <EmptyState
-      heading={selectedTab === 0 ? "Inbox Zero!" : "No history found"}
-      action={selectedTab === 0 ? { 
-        content: "Run Manual Scan", 
-        onAction: handleRunScan,
-        loading: isSyncing
-      } : undefined}
-      image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-    >
-      <BlockStack gap="200" inlineAlign="center">
-        <Text as="p" variant="bodyMd">
-          {selectedTab === 0 
-            ? "You have no pending reconciliation issues. Great job keeping everything restocked!"
-            : "There are no resolved reconciliation exceptions yet."}
-        </Text>
-        {selectedTab === 0 && <Badge tone="success">Real-time sync active</Badge>}
-      </BlockStack>
-    </EmptyState>
-  );
+
 
   const rowMarkup = paginatedExceptions.map((ex, index) => {
     const formattedExposure = new Intl.NumberFormat("en-US", {
@@ -287,25 +309,33 @@ export default function Index() {
     <Page
       title="DearRecon"
       subtitle="Refund & Return Reconciliation"
-      primaryAction={{
-        content: "Run Daily Scan",
-        loading: isSyncing,
-        onAction: handleRunScan,
-      }}
+      primaryAction={
+        planType === "FREE"
+          ? {
+              content: "Upgrade to Pro",
+              url: "/app/pricing",
+            }
+          : undefined
+      }
     >
       <BlockStack gap="400">
+        <Box paddingBlockEnd="200">
+          <InlineStack align="end">
+            <Tooltip content="Free tier allows 1 scan per 24 hours. Upgrade to Pro for unlimited scans.">
+              <Button 
+                variant="primary" 
+                onClick={handleRunScan} 
+                disabled={isCooldownActive} 
+                loading={isSyncing}
+              >
+                {isCooldownActive ? `Next scan available in ${formatTime(remainingTime)}` : "Run Daily Scan"}
+              </Button>
+            </Tooltip>
+          </InlineStack>
+        </Box>
+
         {showBanner && (
-          <Banner
-            title="How it works"
-            tone="info"
-            onDismiss={() => setShowBanner(false)}
-          >
-            <Text as="p">
-              DearRecon automatically scans your store for refunds that haven't been restocked. 
-              Click on any open exception to investigate the financial exposure, verify the details in Shopify, 
-              and mark it as resolved once the inventory is corrected.
-            </Text>
-          </Banner>
+          <OnboardingBanner onDismiss={() => setShowBanner(false)} />
         )}
 
         <Layout>
@@ -343,7 +373,12 @@ export default function Index() {
               <Card padding="0">
                 <Tabs
                   tabs={[
-                    { id: 'open', content: 'Action Required', accessibilityLabel: 'Open exceptions' },
+                    { 
+                      id: 'open', 
+                      content: 'Action Required',
+                      badge: openExceptionsCount > 0 ? openExceptionsCount.toString() : undefined,
+                      accessibilityLabel: 'Open exceptions' 
+                    },
                     { id: 'resolved', content: 'Audit History', accessibilityLabel: 'Resolved exceptions' },
                   ]}
                   selected={selectedTab}
@@ -363,7 +398,14 @@ export default function Index() {
                   </Box>
                   <Box paddingBlockStart="400">
                     {filteredExceptions.length === 0 ? (
-                      emptyStateMarkup
+                      <DashboardEmptyState
+                        selectedTab={selectedTab}
+                        handleManualScan={handleRunScan}
+                        isSyncing={isSyncing}
+                        cooldownRemaining={cooldownRemaining}
+                        planType={planType}
+                        isCooldownActive={isCooldownActive}
+                      />
                     ) : (
                       <>
                         <IndexTable
@@ -416,107 +458,12 @@ export default function Index() {
         </Layout>
       </BlockStack>
 
-      {/* Resolution Modal */}
-      <Modal
-        open={activeException !== null}
+      <ExceptionDetailModal
+        activeException={activeException}
         onClose={handleModalClose}
-        title="Exception Details"
-        primaryAction={
-          activeException?.status === "OPEN"
-            ? {
-                content: "Submit Resolution",
-                onAction: handleResolveSubmit,
-                loading: isResolving,
-              }
-            : undefined
-        }
-        secondaryActions={[
-          {
-            content: "Close",
-            onAction: handleModalClose,
-          },
-        ]}
-      >
-        <Modal.Section>
-          {activeException && (
-            <BlockStack gap="400">
-              <BlockStack gap="200">
-                <Text variant="headingMd" as="h3">
-                  What Happened
-                </Text>
-                <Grid>
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" tone="subdued">Refunded Quantity:</Text>
-                  </Grid.Cell>
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" fontWeight="bold">{activeException.refundQuantity}</Text>
-                  </Grid.Cell>
-                  
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" tone="subdued">Returned/Restocked Quantity:</Text>
-                  </Grid.Cell>
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" fontWeight="bold">{activeException.returnQuantity}</Text>
-                  </Grid.Cell>
-                  
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" tone="subdued">Missing Reconciliation:</Text>
-                  </Grid.Cell>
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" tone="critical" fontWeight="bold">{activeException.discrepancyQuantity}</Text>
-                  </Grid.Cell>
-                  
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" tone="subdued">Total Financial Exposure:</Text>
-                  </Grid.Cell>
-                  <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                    <Text variant="bodyMd" as="p" fontWeight="bold">
-                      {new Intl.NumberFormat("en-US", {
-                        style: "currency",
-                        currency: activeException.currencyCode,
-                      }).format(Number(activeException.estimatedExposure))}
-                    </Text>
-                  </Grid.Cell>
-                </Grid>
-              </BlockStack>
-
-              <Button
-                variant="primary"
-                url={`shopify:admin/orders/${activeException.orderId.split("/").pop()}`}
-                target="_parent"
-              >
-                Open Order in Shopify
-              </Button>
-
-              {activeException.status === "OPEN" ? (
-                <ChoiceList
-                  title="Resolution Reason"
-                  choices={[
-                    { label: "Restocked", value: "Restocked" },
-                    { label: "Manual adjustment", value: "Manual adjustment" },
-                    { label: "False positive", value: "False positive" },
-                    { label: "Other", value: "Other" },
-                  ]}
-                  selected={resolutionReason}
-                  onChange={setResolutionReason}
-                />
-              ) : (
-                <BlockStack gap="200">
-                  <Text variant="headingMd" as="h3">
-                    Resolution Details
-                  </Text>
-                  <Text variant="bodyMd" as="p">
-                    Resolved By: {activeException.resolvedBy || "System"}
-                  </Text>
-                  <Text variant="bodyMd" as="p">
-                    Reason: {activeException.resolutionReason}
-                  </Text>
-                </BlockStack>
-              )}
-            </BlockStack>
-          )}
-        </Modal.Section>
-      </Modal>
+        onResolve={handleResolveSubmit}
+        isResolving={isResolving}
+      />
     </Page>
   );
 }

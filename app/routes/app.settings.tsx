@@ -12,17 +12,12 @@ import {
   Button,
   Text,
 } from "@shopify/polaris";
+import { SaveBar } from "@shopify/app-bridge-react";
 import prisma from "../db.server";
 import { useState, useCallback } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
-
-  await billing.require({
-    plans: [MONTHLY_PLAN],
-    isTest: true,
-    onFailure: async () => billing.request({ plan: MONTHLY_PLAN, isTest: true }),
-  });
+  const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
   let settings = await prisma.shopSettings.findUnique({ where: { shop } });
@@ -33,6 +28,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       shop,
       minimumExposure: 0 as any, // Temporary cast, will be sent as string anyway
       lookbackDays: 30,
+      planType: "FREE",
+      lastManualScanAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -72,15 +69,21 @@ export default function Settings() {
   const isSaving = nav.state === "submitting";
 
   const [minimumExposure, setMinimumExposure] = useState(settings.minimumExposure);
-  const [lookbackDays, setLookbackDays] = useState(settings.lookbackDays.toString());
+  const [lookbackDays, setLookbackDays] = useState(settings.lookbackDays?.toString() || "30");
+
+  const isDirty = minimumExposure !== settings.minimumExposure || lookbackDays !== (settings.lookbackDays?.toString() || "30");
 
   const handleSave = useCallback(() => {
     submit(
       { minimumExposure, lookbackDays },
       { method: "post" }
     );
-    // Note: In a full App Bridge setup, you'd show a ui-toast here on successful action response
   }, [minimumExposure, lookbackDays, submit]);
+
+  const handleDiscard = useCallback(() => {
+    setMinimumExposure(settings.minimumExposure);
+    setLookbackDays(settings.lookbackDays?.toString() || "30");
+  }, [settings]);
 
   return (
     <Page 
@@ -88,13 +91,19 @@ export default function Settings() {
       subtitle="Engine Configuration"
       backAction={{ content: 'Dashboard', url: '/app' }}
     >
+      {isDirty && (
+        <SaveBar id="my-save-bar">
+          <button variant="primary" id="save" onClick={handleSave} disabled={isSaving}>Save</button>
+          <button id="discard" onClick={handleDiscard} disabled={isSaving}>Discard</button>
+        </SaveBar>
+      )}
       <Layout>
-        <Layout.Section>
+        <Layout.AnnotatedSection
+          title="Reconciliation Configuration"
+          description="Define the engine parameters for the daily order scan and how exceptions are handled."
+        >
           <Card>
             <BlockStack gap="400">
-              <Text as="h2" variant="headingMd">
-                Reconciliation Configuration
-              </Text>
               <FormLayout>
                 <TextField
                   label="Minimum Exposure Threshold"
@@ -118,13 +127,10 @@ export default function Settings() {
                   onChange={setLookbackDays}
                   helpText="How far back should manual daily scans check for order modifications?"
                 />
-                <Button loading={isSaving} variant="primary" onClick={handleSave}>
-                  Save Settings
-                </Button>
               </FormLayout>
             </BlockStack>
           </Card>
-        </Layout.Section>
+        </Layout.AnnotatedSection>
       </Layout>
     </Page>
   );

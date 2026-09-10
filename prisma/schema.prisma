@@ -44,10 +44,12 @@ model MerchantSettings {
 model ShopSettings {
   id              String   @id @default(cuid())
   shop            String   @unique
-  minimumExposure Decimal  @default(0)
-  lookbackDays    Int      @default(30)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  minimumExposure Decimal   @default(0)
+  lookbackDays    Int       @default(30)
+  planType        String    @default("FREE")
+  lastManualScanAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model ReconciliationException {

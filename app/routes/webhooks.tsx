@@ -59,6 +59,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           if (!admin) {
             throw new Error(`Admin context missing for shop ${shop}`);
           }
+          
+          const settings = await db.shopSettings.findUnique({ where: { shop } });
+          if (!settings || settings.planType === "FREE") {
+            console.log(`[Webhook ${topic}] Skipped background scan for ${shop} (Free tier requires Pro)`);
+            break;
+          }
+
           const result = await runTargetedReconciliationScan(admin, shop, orderIdStr);
           console.log(`✅ [Webhook] Scan complete for ${orderIdStr}:`, result);
         } catch (error) {
