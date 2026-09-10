@@ -150,11 +150,20 @@ export default function Index() {
 
   const emptyStateMarkup = (
     <EmptyState
-      heading="✓ You're all caught up"
-      action={{ content: "Run Scan", onAction: handleRunScan }}
+      heading="All caught up"
+      action={{ 
+        content: "Run Manual Scan", 
+        onAction: handleRunScan,
+        loading: isSyncing
+      }}
       image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
     >
-      <p>DearRecon checked your recent refunds and returns. No reconciliation exceptions were found.</p>
+      <BlockStack gap="200" inlineAlign="center">
+        <Text as="p" variant="bodyMd">
+          No missing items or unrecorded refunds detected in your recent orders.
+        </Text>
+        <Badge tone="success">Real-time sync active</Badge>
+      </BlockStack>
     </EmptyState>
   );
 
@@ -207,7 +216,8 @@ export default function Index() {
 
   return (
     <Page
-      title="Reconciliation Dashboard"
+      title="DEARRECON"
+      subtitle="Refund & Return Reconciliation"
       primaryAction={{
         content: "Run Daily Scan",
         loading: isSyncing,

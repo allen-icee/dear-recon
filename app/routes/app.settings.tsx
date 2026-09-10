@@ -77,7 +77,11 @@ export default function Settings() {
   }, [minimumExposure, lookbackDays, submit]);
 
   return (
-    <Page title="Settings">
+    <Page 
+      title="DEARRECON"
+      subtitle="Engine Configuration"
+      backAction={{ content: 'Dashboard', url: '/app' }}
+    >
       <Layout>
         <Layout.Section>
           <Card>
