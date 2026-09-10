@@ -23,5 +23,10 @@ api_version = "2026-10"
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_orders, read_returns, read_inventory"
 
+[webhooks.privacy_compliance]
+customer_deletion_url = "/webhooks"
+customer_data_request_url = "/webhooks"
+shop_deletion_url = "/webhooks"
+
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]

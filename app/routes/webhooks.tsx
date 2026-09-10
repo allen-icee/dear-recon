@@ -6,14 +6,28 @@ import db from "../db.server";
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, session, admin, payload } = await authenticate.webhook(request);
 
-  if (!admin && topic !== "APP_UNINSTALLED") {
+  const bypassAdminTopics = [
+    "APP_UNINSTALLED",
+    "CUSTOMERS_DATA_REQUEST",
+    "CUSTOMERS_REDACT",
+    "SHOP_REDACT",
+  ];
+
+  if (!admin && !bypassAdminTopics.includes(topic)) {
     // The webhook might not have an admin context if the shop has uninstalled
     return new Response();
   }
 
   switch (topic) {
+    case "CUSTOMERS_DATA_REQUEST":
+    case "CUSTOMERS_REDACT": {
+      // DearRecon doesn't store PII. Return 200 OK.
+      console.log(`🚀 [Webhook ${topic}] No PII to redact or provide for shop ${shop}`);
+      break;
+    }
+    case "SHOP_REDACT":
     case "APP_UNINSTALLED": {
-      console.log(`🚀 [Webhook ${topic}] Cleaning up data for uninstalled shop ${shop}`);
+      console.log(`🚀 [Webhook ${topic}] Cleaning up data for shop ${shop}`);
       try {
         if (session) {
           await db.session.deleteMany({ where: { shop } });

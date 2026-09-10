@@ -160,7 +160,7 @@ export const RECONCILIATION_QUERY = `
   }
 `;
 
-async function processOrderReconciliation(order: any, shop: string, settings: { minimumExposure: number }) {
+export async function processOrderReconciliation(order: any, shop: string, settings: { minimumExposure: number }) {
   let exceptionsCount = 0;
   const lineItems = order.lineItems.edges.map((e: any) => e.node);
   
