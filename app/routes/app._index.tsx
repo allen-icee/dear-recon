@@ -20,13 +20,19 @@ import {
   ChoiceList,
   Link,
 } from "@shopify/polaris";
-import { authenticate } from "../shopify.server";
+import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
 import { runReconciliationScan } from "../services/reconciliation.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
+
+  await billing.require({
+    plans: [MONTHLY_PLAN],
+    isTest: true,
+    onFailure: async () => billing.request({ plan: MONTHLY_PLAN, isTest: true }),
+  });
 
   // Fetch all reconciliation exceptions for this shop
   const rawExceptions = await prisma.reconciliationException.findMany({

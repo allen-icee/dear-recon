@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit, useNavigation } from "react-router";
-import { authenticate } from "../shopify.server";
+import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import {
   Page,
   Layout,
@@ -16,7 +16,13 @@ import prisma from "../db.server";
 import { useState, useCallback } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
+
+  await billing.require({
+    plans: [MONTHLY_PLAN],
+    isTest: true,
+    onFailure: async () => billing.request({ plan: MONTHLY_PLAN, isTest: true }),
+  });
   const shop = session.shop;
 
   let settings = await prisma.shopSettings.findUnique({ where: { shop } });
