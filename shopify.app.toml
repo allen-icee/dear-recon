@@ -16,16 +16,12 @@ api_version = "2026-10"
   topics = [ "app/scopes_update" ]
 
   [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
-  topics = [ "app/uninstalled" ]
-
-  [[webhooks.subscriptions]]
   uri = "/webhooks"
-  topics = [ "orders/updated", "refunds/create" ]
+  topics = [ "app/uninstalled", "orders/updated", "refunds/create" ]
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_orders, read_returns, read_inventory, write_metaobject_definitions, write_metaobjects, write_products"
+scopes = "read_orders, read_returns, read_inventory"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
