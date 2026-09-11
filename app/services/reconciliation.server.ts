@@ -160,24 +160,23 @@ export const RECONCILIATION_QUERY = `
   }
 `;
 
+/**
+ * Calculates discrepancies between refunded and returned line items, ignoring unfulfilled cancellations.
+ * Creates or auto-resolves exceptions based on exposure settings.
+ */
 export async function processOrderReconciliation(order: any, shop: string, settings: { minimumExposure: number }) {
   let exceptionsCount = 0;
   const lineItems = order.lineItems.edges.map((e: any) => e.node);
-  
-  // Aggregate refunds per lineItem
   const refundMap = new Map<string, number>();
   for (const refund of order.refunds) {
     for (const refundLineItemEdge of refund.refundLineItems.edges) {
       const rl = refundLineItemEdge.node;
-      // Ignore CANCEL restock types, as they represent unfulfilled items 
-      // that were cancelled, not shipped items that were refunded.
       if (rl.lineItem?.id && rl.restockType !== "CANCEL") {
         refundMap.set(rl.lineItem.id, (refundMap.get(rl.lineItem.id) || 0) + rl.quantity);
       }
     }
   }
 
-  // Aggregate returns per lineItem
   const returnMap = new Map<string, number>();
   for (const returnEdge of order.returns.edges) {
     for (const returnLineItemEdge of returnEdge.node.returnLineItems.edges) {
@@ -189,7 +188,6 @@ export async function processOrderReconciliation(order: any, shop: string, setti
     }
   }
 
-  // Compare and generate exceptions
   for (const lineItem of lineItems) {
     const refundQuantity = refundMap.get(lineItem.id) || 0;
     const returnQuantity = returnMap.get(lineItem.id) || 0;
@@ -200,7 +198,6 @@ export async function processOrderReconciliation(order: any, shop: string, setti
       const priceAmount = lineItem.originalUnitPriceSet?.shopMoney?.amount || "0";
       const currencyCode = lineItem.originalUnitPriceSet?.shopMoney?.currencyCode || "USD";
 
-      // Decimal-safe math utilizing the utility class
       const exposure = new Money(priceAmount, currencyCode).multiply(discrepancyQuantity);
 
       if (exposure.toNumber() >= settings.minimumExposure) {
@@ -236,8 +233,6 @@ export async function processOrderReconciliation(order: any, shop: string, setti
       exceptionsCount++;
       }
     } else if (discrepancyQuantity <= 0) {
-      // Zero Discrepancy Cleanup: Auto-resolve if quantities now match 
-      // (e.g. physical return finally processed)
       await prisma.reconciliationException.updateMany({
         where: { 
           shop, 
@@ -263,8 +258,7 @@ export async function processOrderReconciliation(order: any, shop: string, setti
 }
 
 /**
- * Fetches recent orders with refunds, returns, and inventory costs,
- * compares the line item quantities, and upserts discrepancies to Prisma.
+ * Scans recently updated orders to calculate and upsert reconciliation discrepancies.
  */
 export async function runReconciliationScan(admin: AdminApiContext, shop: string, query?: string) {
   const dbSettings = await prisma.shopSettings.findUnique({ where: { shop } });
@@ -299,7 +293,7 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
 }
 
 /**
- * Fetches a single order by ID and processes it for discrepancies.
+ * Scans a specific order by ID to calculate and upsert reconciliation discrepancies.
  */
 export async function runTargetedReconciliationScan(admin: AdminApiContext, shop: string, orderId: string) {
   const dbSettings = await prisma.shopSettings.findUnique({ where: { shop } });

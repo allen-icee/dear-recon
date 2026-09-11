@@ -76,7 +76,7 @@ describe("processOrderReconciliation", () => {
   it("Scenario B: Partial refund + partial return of the exact same quantity creates no exception", async () => {
     const order = createBaseOrder();
 
-    // Partial refund of 1
+
     order.refunds = [
       {
         refundLineItems: {
@@ -93,7 +93,7 @@ describe("processOrderReconciliation", () => {
       },
     ];
 
-    // Partial return of 1
+
     order.returns.edges = [
       {
         node: {
@@ -117,7 +117,7 @@ describe("processOrderReconciliation", () => {
 
     expect(exceptionsCount).toBe(0);
     expect(prisma.reconciliationException.upsert).not.toHaveBeenCalled();
-    // It should hit the updateMany for cleanup
+
     expect(prisma.reconciliationException.updateMany).toHaveBeenCalledTimes(1);
   });
 
@@ -144,14 +144,14 @@ describe("processOrderReconciliation", () => {
 
     expect(exceptionsCount).toBe(0);
     expect(prisma.reconciliationException.upsert).not.toHaveBeenCalled();
-    // Should hit updateMany because effective refund quantity is 0, so discrepancy is 0
+
     expect(prisma.reconciliationException.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it("Scenario D: Zero Discrepancy Cleanup updates status to RESOLVED", async () => {
     const order = createBaseOrder();
 
-    // Refund of 1, return of 1
+
     order.refunds = [
       {
         refundLineItems: {
@@ -194,7 +194,7 @@ describe("processOrderReconciliation", () => {
     expect(prisma.reconciliationException.updateMany).toHaveBeenCalledTimes(1);
     const updateArgs = vi.mocked(prisma.reconciliationException.updateMany).mock.calls[0][0];
 
-    // Check that it targets OPEN items and sets them to RESOLVED
+
     expect(updateArgs.where!.status).toBe("OPEN");
     expect(updateArgs.data.status).toBe("RESOLVED");
     expect(updateArgs.data.discrepancyQuantity).toBe(0);

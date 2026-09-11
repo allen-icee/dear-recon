@@ -17,7 +17,6 @@ export function DashboardEmptyState({
   planType,
   isCooldownActive
 }: DashboardEmptyStateProps) {
-  // Use the passed isCooldownActive if provided, otherwise compute it statically
   const cooldownActive = isCooldownActive ?? (planType === "FREE" && cooldownRemaining > 0);
 
   return (

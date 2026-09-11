@@ -13,14 +13,10 @@ import {
   Button,
   Text,
   Badge,
-  EmptyState,
   Grid,
   BlockStack,
-  Modal,
-  ChoiceList,
   Link,
   Tabs,
-  Banner,
   TextField,
   Pagination,
   Box,
@@ -29,7 +25,7 @@ import {
   InlineStack,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate, MONTHLY_PLAN } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
 import { runReconciliationScan } from "../services/reconciliation.server";
@@ -38,7 +34,8 @@ import { OnboardingBanner } from "../components/dashboard/OnboardingBanner";
 import { ExceptionDetailModal, ExceptionUI } from "../components/dashboard/ExceptionDetailModal";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { session, admin } = await authenticate.admin(request);
 
   let settings = await prisma.shopSettings.findUnique({
     where: { shop: session.shop },
@@ -80,6 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
 
@@ -162,7 +160,7 @@ export default function Index() {
 
   const [activeException, setActiveException] = useState<ExceptionUI | null>(null);
   
-  // UX Enhancements State
+
   const [selectedTab, setSelectedTab] = useState(0);
   const [queryValue, setQueryValue] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -208,15 +206,15 @@ export default function Index() {
 
   const handleTabChange = useCallback((selectedTabIndex: number) => {
     setSelectedTab(selectedTabIndex);
-    setCurrentPage(1); // Reset pagination on tab change
+    setCurrentPage(1);
   }, []);
 
   const handleSearchChange = useCallback((value: string) => {
     setQueryValue(value);
-    setCurrentPage(1); // Reset pagination on search
+    setCurrentPage(1);
   }, []);
 
-  // Filter and Paginate Data
+
   const filteredExceptions = exceptions.filter((ex) => {
     const statusMatch = selectedTab === 0 ? ex.status === "OPEN" : ex.status === "RESOLVED";
     if (!statusMatch) return false;
@@ -237,7 +235,7 @@ export default function Index() {
     currentPage * itemsPerPage
   );
 
-  // Metrics Calculation (only on OPEN items)
+
   const openExceptions = exceptions.filter(ex => ex.status === "OPEN");
   const openExceptionsCount = openExceptions.length;
   const estimatedCostExposure = openExceptions.reduce((acc, ex) => acc + Number(ex.estimatedExposure), 0);
@@ -419,7 +417,7 @@ export default function Index() {
                             { title: "Exposure", alignment: "end" },
                             { title: "Age" },
                             { title: "Status" },
-                            { title: "" }, // For the resolve button
+                            { title: "" },
                           ]}
                           selectable={false}
                         >

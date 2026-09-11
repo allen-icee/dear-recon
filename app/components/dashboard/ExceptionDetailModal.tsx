@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, BlockStack, Text, Grid, Button, ChoiceList } from "@shopify/polaris";
+import { BlockStack, Text, Grid, Button, ChoiceList } from "@shopify/polaris";
 
 export interface ExceptionUI {
   id: string;
@@ -42,27 +42,13 @@ export function ExceptionDetailModal({
   };
 
   return (
-    <Modal
-      open={activeException !== null}
-      onClose={onClose}
-      title="Exception Details"
-      primaryAction={
-        activeException?.status === "OPEN"
-          ? {
-              content: "Submit Resolution",
-              onAction: handleResolveSubmit,
-              loading: isResolving,
-            }
-          : undefined
-      }
-      secondaryActions={[
-        {
-          content: "Close",
-          onAction: onClose,
-        },
-      ]}
-    >
-      <Modal.Section>
+    // @ts-expect-error Shopify App Bridge types for ui-modal are missing the open prop in some versions
+    <ui-modal id="exception-detail-modal" open={activeException !== null ? "" : undefined}>
+      <ui-title-bar title="Exception Details">
+        <button variant="primary" onClick={handleResolveSubmit} disabled={isResolving}>Submit Resolution</button>
+        <button onClick={onClose}>Close</button>
+      </ui-title-bar>
+      <div style={{ padding: '16px' }}>
         {activeException && (
           <BlockStack gap="400">
             <BlockStack gap="200">
@@ -140,7 +126,7 @@ export function ExceptionDetailModal({
             )}
           </BlockStack>
         )}
-      </Modal.Section>
-    </Modal>
+      </div>
+    </ui-modal>
   );
 }

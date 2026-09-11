@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit, useNavigation } from "react-router";
-import { authenticate, MONTHLY_PLAN } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 import {
   Page,
   Layout,
@@ -9,15 +9,14 @@ import {
   FormLayout,
   TextField,
   Select,
-  Button,
-  Text,
 } from "@shopify/polaris";
 import { SaveBar } from "@shopify/app-bridge-react";
 import prisma from "../db.server";
 import { useState, useCallback } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
 
   let settings = await prisma.shopSettings.findUnique({ where: { shop } });
@@ -26,7 +25,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     settings = {
       id: "default",
       shop,
-      minimumExposure: 0 as any, // Temporary cast, will be sent as string anyway
+      minimumExposure: 0 as any,
       lookbackDays: 30,
       planType: "FREE",
       lastManualScanAt: null,
@@ -39,7 +38,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
   
   const formData = await request.formData();

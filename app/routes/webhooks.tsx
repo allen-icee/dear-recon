@@ -14,14 +14,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   ];
 
   if (!admin && !bypassAdminTopics.includes(topic)) {
-    // The webhook might not have an admin context if the shop has uninstalled
     return new Response();
   }
 
   switch (topic) {
     case "CUSTOMERS_DATA_REQUEST":
     case "CUSTOMERS_REDACT": {
-      // DearRecon doesn't store PII. Return 200 OK.
       console.log(`🚀 [Webhook ${topic}] No PII to redact or provide for shop ${shop}`);
       break;
     }
@@ -46,10 +44,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       let orderIdStr = "";
       
       if (topic === "ORDERS_UPDATED") {
-        // Payload is the Order object
         orderIdStr = payload.admin_graphql_api_id as string;
       } else if (topic === "REFUNDS_CREATE") {
-        // Payload is the Refund object which has an order_id
         orderIdStr = `gid://shopify/Order/${payload.order_id}`;
       }
 

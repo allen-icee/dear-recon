@@ -21,7 +21,8 @@ import { authenticate } from "../shopify.server";
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { session, admin } = await authenticate.admin(request);
 
   // eslint-disable-next-line no-undef
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
@@ -37,7 +38,6 @@ export default function App() {
           <s-link href="/app">Home</s-link>
           <s-link href="/app/pricing">Pricing</s-link>
           <s-link href="/app/settings">Settings</s-link>
-          <s-link href="/app/additional">Additional page</s-link>
         </s-app-nav>
         <Outlet />
       </PolarisAppProvider>
@@ -45,7 +45,9 @@ export default function App() {
   );
 }
 
-// Shopify needs React Router to catch some thrown responses, so that their headers are included in the response.
+/**
+ * Catches responses thrown by React Router to ensure Shopify App Bridge authentication headers are preserved.
+ */
 export function ErrorBoundary() {
   return boundary.error(useRouteError());
 }

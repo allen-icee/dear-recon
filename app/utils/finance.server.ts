@@ -9,8 +9,7 @@ export class Money {
   public currencyCode: string;
 
   constructor(amount: string | number | Decimal, currencyCode: string) {
-    // We configure decimal.js instance for standard currency logic if needed,
-    // but the default constructor avoids floating point issues if passed a string or Decimal.
+
     this.amount = new Decimal(amount);
     this.currencyCode = currencyCode.toUpperCase();
   }

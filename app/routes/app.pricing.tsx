@@ -5,10 +5,11 @@ import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import prisma from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { session, admin, billing } = await authenticate.admin(request);
   const settings = await prisma.shopSettings.findUnique({ where: { shop: session.shop } });
   
-  // Check if they already have an active subscription via shopify billing
+
   const billingCheck = await billing.check({
     plans: [MONTHLY_PLAN],
     isTest: true,
@@ -17,13 +18,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const hasActiveSubscription = billingCheck.hasActivePayment;
   
   if (hasActiveSubscription && settings?.planType !== "PRO") {
-     // sync it just in case
+
      await prisma.shopSettings.update({
        where: { shop: session.shop },
        data: { planType: "PRO" }
      });
   } else if (!hasActiveSubscription && settings?.planType === "PRO") {
-      // Downgrade if the subscription was cancelled
+
       await prisma.shopSettings.update({
           where: { shop: session.shop },
           data: { planType: "FREE" }
@@ -34,7 +35,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { session, admin, billing } = await authenticate.admin(request);
   return await billing.request({
     plan: MONTHLY_PLAN,
     isTest: true,
