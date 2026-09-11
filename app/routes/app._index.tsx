@@ -16,13 +16,15 @@ import {
   Grid,
   BlockStack,
   Link,
-  Tabs,
-  TextField,
   Pagination,
   Box,
   SkeletonBodyText,
   Tooltip,
-  InlineStack,
+  TextField,
+  useIndexResourceState,
+  IndexFilters,
+  useSetIndexFiltersMode,
+  IndexFiltersMode,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -71,6 +73,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ...ex,
     estimatedExposure: ex.estimatedExposure.toString(),
     createdAt: ex.createdAt.toISOString(),
+    resolvedAt: ex.resolvedAt ? ex.resolvedAt.toISOString() : null,
   }));
 
   return { exceptions, planType, cooldownRemaining };
@@ -95,9 +98,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         status: "RESOLVED",
         resolvedAt: new Date(),
         resolutionReason: resolutionReason,
+        resolvedBy: session.shop,
       },
     });
-    return { success: true };
+    return { success: true, intent: "resolve" };
+  }
+
+  if (intent === "bulk_resolve") {
+    const idsString = formData.get("ids")?.toString();
+    const ids = idsString ? JSON.parse(idsString) : [];
+    if (ids.length > 0) {
+      await prisma.reconciliationException.updateMany({
+        where: {
+          id: { in: ids },
+          shop: session.shop,
+        },
+        data: {
+          status: "RESOLVED",
+          resolvedAt: new Date(),
+          resolutionReason: "Bulk Resolved manually",
+          resolvedBy: session.shop,
+        },
+      });
+    }
+    return { success: true, intent: "bulk_resolve" };
   }
 
   if (intent === "sync") {
@@ -145,7 +169,11 @@ export default function Index() {
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.success) {
-      shopify.toast.show("Exception resolved");
+      if (fetcher.data.intent === "bulk_resolve") {
+        shopify.toast.show("Exceptions bulk resolved");
+      } else if (fetcher.data.intent === "resolve") {
+        shopify.toast.show("Exception resolved");
+      }
     }
   }, [fetcher.state, fetcher.data, shopify]);
 
@@ -165,6 +193,25 @@ export default function Index() {
   const [queryValue, setQueryValue] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showBanner, setShowBanner] = useState(true);
+
+  const [sortSelected, setSortSelected] = useState<string[]>(['date desc']);
+  const { mode, setMode } = useSetIndexFiltersMode(IndexFiltersMode.Default);
+  const [minExposure, setMinExposure] = useState<string>('');
+
+  const appliedFilters = minExposure && !isNaN(Number(minExposure)) && Number(minExposure) > 0
+    ? [
+        {
+          key: 'minExposure',
+          label: `Min Exposure: $${minExposure}`,
+          onRemove: () => setMinExposure(''),
+        },
+      ]
+    : [];
+
+  const handleClearAll = useCallback(() => {
+    setQueryValue('');
+    setMinExposure('');
+  }, []);
 
   const [remainingTime, setRemainingTime] = useState(cooldownRemaining);
 
@@ -223,9 +270,28 @@ export default function Index() {
       const q = queryValue.toLowerCase();
       const orderMatch = ex.orderName.toLowerCase().includes(q);
       const skuMatch = (ex.sku || "").toLowerCase().includes(q);
-      return orderMatch || skuMatch;
+      if (!orderMatch && !skuMatch) return false;
     }
+
+    if (minExposure && !isNaN(Number(minExposure))) {
+      if (Number(ex.estimatedExposure) < Number(minExposure)) return false;
+    }
+
     return true;
+  });
+
+  filteredExceptions.sort((a, b) => {
+    const sort = sortSelected[0] as string;
+    if (sort === "date desc") {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    } else if (sort === "date asc") {
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    } else if (sort === "exposure desc") {
+      return Number(b.estimatedExposure) - Number(a.estimatedExposure);
+    } else if (sort === "exposure asc") {
+      return Number(a.estimatedExposure) - Number(b.estimatedExposure);
+    }
+    return 0;
   });
 
   const itemsPerPage = 10;
@@ -234,6 +300,43 @@ export default function Index() {
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
+
+  const { selectedResources, allResourcesSelected, handleSelectionChange, clearSelection } =
+    useIndexResourceState(paginatedExceptions);
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.success && fetcher.data.intent === "bulk_resolve") {
+      clearSelection();
+    }
+  }, [fetcher.state, fetcher.data, clearSelection]);
+
+  const handleBulkResolve = useCallback(() => {
+    const formData = new FormData();
+    formData.append("intent", "bulk_resolve");
+    formData.append("ids", JSON.stringify(selectedResources));
+    fetcher.submit(formData, { method: "POST", action: "?index" });
+  }, [fetcher, selectedResources]);
+
+  const handleExportCSV = useCallback(() => {
+    const csvHeader = "Order,Issue,Item,Qty,Exposure,Age,Status\n";
+    const csvRows = filteredExceptions.map(ex => {
+      const ageInDays = Math.floor((new Date().getTime() - new Date(ex.createdAt).getTime()) / (1000 * 3600 * 24));
+      const displayItem = ex.itemName ? ex.itemName.replace(/"/g, '""') : (ex.sku || "Unknown Item");
+      return `"${ex.orderName}","Missing Return","${displayItem}",${ex.discrepancyQuantity},${ex.estimatedExposure},${ageInDays},${ex.status}`;
+    });
+    const csvString = csvHeader + csvRows.join("\n");
+    const blob = new Blob([csvString], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const tabName = selectedTab === 0 ? 'ActionRequired' : 'AuditHistory';
+    const dateStr = new Date().toISOString().split('T')[0];
+    a.download = `DearRecon_${tabName}_${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [filteredExceptions, selectedTab]);
 
 
   const openExceptions = exceptions.filter(ex => ex.status === "OPEN");
@@ -258,7 +361,12 @@ export default function Index() {
     const numericOrderId = ex.orderId.split("/").pop();
 
     return (
-      <IndexTable.Row id={ex.id} key={ex.id} position={index}>
+      <IndexTable.Row 
+        id={ex.id} 
+        key={ex.id} 
+        position={index}
+        selected={selectedResources.includes(ex.id)}
+      >
         <IndexTable.Cell>
           <Link url={`shopify:admin/orders/${numericOrderId}`} target="_parent">
             <Text variant="bodyMd" fontWeight="bold" as="span" truncate>
@@ -275,7 +383,7 @@ export default function Index() {
         </IndexTable.Cell>
         <IndexTable.Cell>
           <Text truncate as="span">
-            {ex.sku || "N/A"}
+            {ex.itemName || ex.sku || "Unknown Item"}
           </Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
@@ -307,31 +415,18 @@ export default function Index() {
     <Page
       title="DearRecon"
       subtitle="Refund & Return Reconciliation"
-      primaryAction={
-        planType === "FREE"
-          ? {
-              content: "Upgrade to Pro",
-              url: "/app/pricing",
-            }
-          : undefined
-      }
+      primaryAction={{
+        content: isCooldownActive ? `Next scan available in ${formatTime(remainingTime)}` : "Run Daily Scan",
+        onAction: handleRunScan,
+        disabled: isCooldownActive,
+        loading: isSyncing,
+      }}
+      secondaryActions={[
+        { content: "Export to CSV", onAction: handleExportCSV },
+        ...(planType === "FREE" ? [{ content: "Upgrade to Pro", url: "/app/pricing" }] : [])
+      ]}
     >
       <BlockStack gap="400">
-        <Box paddingBlockEnd="200">
-          <InlineStack align="end">
-            <Tooltip content="Free tier allows 1 scan per 24 hours. Upgrade to Pro for unlimited scans.">
-              <Button 
-                variant="primary" 
-                onClick={handleRunScan} 
-                disabled={isCooldownActive} 
-                loading={isSyncing}
-              >
-                {isCooldownActive ? `Next scan available in ${formatTime(remainingTime)}` : "Run Daily Scan"}
-              </Button>
-            </Tooltip>
-          </InlineStack>
-        </Box>
-
         {showBanner && (
           <OnboardingBanner onDismiss={() => setShowBanner(false)} />
         )}
@@ -369,7 +464,24 @@ export default function Index() {
 
               {/* Exception Table */}
               <Card padding="0">
-                <Tabs
+                <IndexFilters
+                  sortOptions={[
+                    { label: 'Date', value: 'date asc', directionLabel: 'Oldest' },
+                    { label: 'Date', value: 'date desc', directionLabel: 'Newest' },
+                    { label: 'Exposure', value: 'exposure asc', directionLabel: 'Lowest' },
+                    { label: 'Exposure', value: 'exposure desc', directionLabel: 'Highest' }
+                  ]}
+                  sortSelected={sortSelected}
+                  queryValue={queryValue}
+                  queryPlaceholder="Search by order ID or SKU"
+                  onQueryChange={handleSearchChange}
+                  onQueryClear={() => handleSearchChange('')}
+                  onSort={setSortSelected}
+                  cancelAction={{
+                    onAction: handleClearAll,
+                    disabled: false,
+                    loading: false,
+                  }}
                   tabs={[
                     { 
                       id: 'open', 
@@ -381,20 +493,30 @@ export default function Index() {
                   ]}
                   selected={selectedTab}
                   onSelect={handleTabChange}
-                >
-                  <Box padding="400" paddingBlockEnd="0">
-                    <TextField
-                      label="Search exceptions"
-                      labelHidden
-                      value={queryValue}
-                      onChange={handleSearchChange}
-                      placeholder="Search by order ID or SKU"
-                      autoComplete="off"
-                      clearButton
-                      onClearButtonClick={() => handleSearchChange('')}
-                    />
-                  </Box>
-                  <Box paddingBlockStart="400">
+                  canCreateNewView={false}
+                  filters={[
+                    {
+                      key: 'minExposure',
+                      label: 'Minimum Exposure ($)',
+                      filter: (
+                        <TextField
+                          label="Minimum Exposure ($)"
+                          value={minExposure}
+                          onChange={setMinExposure}
+                          autoComplete="off"
+                          labelHidden
+                          type="number"
+                        />
+                      ),
+                      shortcut: true,
+                    },
+                  ]}
+                  appliedFilters={appliedFilters}
+                  onClearAll={handleClearAll}
+                  mode={mode}
+                  setMode={setMode}
+                />
+                <Box paddingBlockStart="400">
                     {filteredExceptions.length === 0 ? (
                       <DashboardEmptyState
                         selectedTab={selectedTab}
@@ -406,21 +528,31 @@ export default function Index() {
                       />
                     ) : (
                       <>
-                        <IndexTable
-                          resourceName={{ singular: "exception", plural: "exceptions" }}
-                          itemCount={paginatedExceptions.length}
-                          headings={[
-                            { title: "Order" },
-                            { title: "Issue" },
-                            { title: "Item" },
-                            { title: "Qty" },
-                            { title: "Exposure", alignment: "end" },
-                            { title: "Age" },
-                            { title: "Status" },
-                            { title: "" },
-                          ]}
-                          selectable={false}
-                        >
+                          <IndexTable
+                            resourceName={{ singular: "exception", plural: "exceptions" }}
+                            itemCount={paginatedExceptions.length}
+                            selectable={selectedTab === 0}
+                            selectedItemsCount={
+                              allResourcesSelected ? 'All' : selectedResources.length
+                            }
+                            onSelectionChange={handleSelectionChange}
+                            promotedBulkActions={[
+                              {
+                                content: 'Mark as resolved (Bulk)',
+                                onAction: handleBulkResolve,
+                              },
+                            ]}
+                            headings={[
+                              { title: "Order" },
+                              { title: "Issue" },
+                              { title: "Item" },
+                              { title: "Qty" },
+                              { title: "Exposure", alignment: "end" },
+                              { title: "Age" },
+                              { title: "Status" },
+                              { title: "" },
+                            ]}
+                          >
                           {nav.state === "loading" || isSyncing ? (
                             <IndexTable.Row id="loading-skeleton" position={0}>
                               <IndexTable.Cell colSpan={8}>
@@ -449,7 +581,6 @@ export default function Index() {
                       </>
                     )}
                   </Box>
-                </Tabs>
               </Card>
             </BlockStack>
           </Layout.Section>

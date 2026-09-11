@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BlockStack, Text, Grid, Button, ChoiceList } from "@shopify/polaris";
 
 export interface ExceptionUI {
@@ -6,6 +6,7 @@ export interface ExceptionUI {
   shop: string;
   orderId: string;
   orderName: string;
+  itemName: string | null;
   lineItemId: string;
   variantId: string;
   sku: string | null;
@@ -18,6 +19,8 @@ export interface ExceptionUI {
   createdAt: string;
   resolutionReason: string | null;
   resolvedBy: string | null;
+  resolvedAt: string | null;
+  [key: string]: unknown;
 }
 
 interface ExceptionDetailModalProps {
@@ -41,11 +44,22 @@ export function ExceptionDetailModal({
     }
   };
 
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const modal = document.getElementById("exception-detail-modal") as any;
+    if (activeException !== null) {
+      modal?.show();
+    } else {
+      modal?.hide();
+    }
+  }, [activeException]);
+
   return (
-    // @ts-expect-error Shopify App Bridge types for ui-modal are missing the open prop in some versions
-    <ui-modal id="exception-detail-modal" open={activeException !== null ? "" : undefined}>
+    <ui-modal id="exception-detail-modal">
       <ui-title-bar title="Exception Details">
-        <button variant="primary" onClick={handleResolveSubmit} disabled={isResolving}>Submit Resolution</button>
+        {activeException?.status === "OPEN" && (
+          <button variant="primary" onClick={handleResolveSubmit} disabled={isResolving}>Submit Resolution</button>
+        )}
         <button onClick={onClose}>Close</button>
       </ui-title-bar>
       <div style={{ padding: '16px' }}>
@@ -122,6 +136,11 @@ export function ExceptionDetailModal({
                 <Text variant="bodyMd" as="p">
                   Reason: {activeException.resolutionReason}
                 </Text>
+                {activeException.resolvedAt && (
+                  <Text variant="bodyMd" as="p">
+                    Date: {new Date(activeException.resolvedAt).toLocaleString()}
+                  </Text>
+                )}
               </BlockStack>
             )}
           </BlockStack>

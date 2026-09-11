@@ -111,7 +111,7 @@ export default function Settings() {
                   value={minimumExposure}
                   onChange={setMinimumExposure}
                   autoComplete="off"
-                  helpText="Discrepancies below this dollar amount will be automatically ignored."
+                  helpText="Any discrepancy with a total cost below this amount will be automatically ignored to prevent micro-alerts."
                   prefix="$"
                 />
                 <Select
@@ -125,7 +125,7 @@ export default function Settings() {
                   ]}
                   value={lookbackDays}
                   onChange={setLookbackDays}
-                  helpText="How far back should manual daily scans check for order modifications?"
+                  helpText="Longer periods require more processing time. 30 days is recommended for most stores."
                 />
               </FormLayout>
             </BlockStack>

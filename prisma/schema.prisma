@@ -57,6 +57,7 @@ model ReconciliationException {
   shop                String
   orderId             String
   orderName           String
+  itemName            String?
   lineItemId          String
   variantId           String
   sku                 String?

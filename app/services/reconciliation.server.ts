@@ -219,6 +219,7 @@ export async function processOrderReconciliation(order: any, shop: string, setti
           shop,
           orderId: order.id,
           orderName: order.name,
+          itemName: lineItem.name,
           lineItemId: lineItem.id,
           variantId: variant?.id || "",
           sku: variant?.sku || "",
