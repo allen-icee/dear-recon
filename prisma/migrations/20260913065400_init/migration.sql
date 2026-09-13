@@ -29,11 +29,24 @@ CREATE TABLE "MerchantSettings" (
 );
 
 -- CreateTable
+CREATE TABLE "ShopSettings" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "shop" TEXT NOT NULL,
+    "minimumExposure" DECIMAL NOT NULL DEFAULT 0,
+    "lookbackDays" INTEGER NOT NULL DEFAULT 30,
+    "planType" TEXT NOT NULL DEFAULT 'FREE',
+    "lastManualScanAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
 CREATE TABLE "ReconciliationException" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "shop" TEXT NOT NULL,
     "orderId" TEXT NOT NULL,
     "orderName" TEXT NOT NULL,
+    "itemName" TEXT,
     "lineItemId" TEXT NOT NULL,
     "variantId" TEXT NOT NULL,
     "sku" TEXT,
@@ -45,11 +58,16 @@ CREATE TABLE "ReconciliationException" (
     "status" TEXT NOT NULL DEFAULT 'OPEN',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
-    "resolvedAt" DATETIME
+    "resolvedAt" DATETIME,
+    "resolvedBy" TEXT,
+    "resolutionReason" TEXT
 );
 
 -- CreateIndex
 CREATE UNIQUE INDEX "MerchantSettings_shop_key" ON "MerchantSettings"("shop");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ShopSettings_shop_key" ON "ShopSettings"("shop");
 
 -- CreateIndex
 CREATE INDEX "ReconciliationException_shop_idx" ON "ReconciliationException"("shop");
@@ -59,3 +77,6 @@ CREATE INDEX "ReconciliationException_orderId_idx" ON "ReconciliationException"(
 
 -- CreateIndex
 CREATE INDEX "ReconciliationException_status_idx" ON "ReconciliationException"("status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ReconciliationException_shop_orderId_lineItemId_key" ON "ReconciliationException"("shop", "orderId", "lineItemId");

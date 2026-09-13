@@ -25,15 +25,20 @@ import {
   IndexFilters,
   useSetIndexFiltersMode,
   IndexFiltersMode,
+  Modal,
+  Select,
+  Frame,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
 import { runReconciliationScan } from "../services/reconciliation.server";
-import { DashboardEmptyState } from "../components/dashboard/DashboardEmptyState";
 import { OnboardingBanner } from "../components/dashboard/OnboardingBanner";
-import { ExceptionDetailModal, ExceptionUI } from "../components/dashboard/ExceptionDetailModal";
+import { DashboardEmptyState } from "../components/dashboard/DashboardEmptyState";
+import { ExceptionDetailModal, type ExceptionUI } from "../components/dashboard/ExceptionDetailModal";
+import { MetricsOverview } from "../components/dashboard/MetricsOverview";
+import { BulkResolveModal } from "../components/dashboard/BulkResolveModal";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -51,7 +56,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const planType = settings.planType;
   let cooldownRemaining = 0;
-  
+
   if (planType === "FREE" && settings.lastManualScanAt) {
     const elapsed = Date.now() - new Date(settings.lastManualScanAt).getTime();
     if (elapsed < 86400000) {
@@ -85,6 +90,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
 
   const intent = formData.get("intent");
+  console.log("Backend: Received POST request with intent:", intent);
   const exceptionId = formData.get("exceptionId")?.toString();
   const resolutionReason = formData.get("resolutionReason")?.toString();
 
@@ -106,6 +112,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (intent === "bulk_resolve") {
     const idsString = formData.get("ids")?.toString();
+    const bulkReason = formData.get("bulkReason")?.toString() || "Bulk Resolved manually";
     const ids = idsString ? JSON.parse(idsString) : [];
     if (ids.length > 0) {
       await prisma.reconciliationException.updateMany({
@@ -116,7 +123,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         data: {
           status: "RESOLVED",
           resolvedAt: new Date(),
-          resolutionReason: "Bulk Resolved manually",
+          resolutionReason: bulkReason,
           resolvedBy: session.shop,
         },
       });
@@ -124,11 +131,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { success: true, intent: "bulk_resolve" };
   }
 
+  if (intent === "reopen") {
+    const id = formData.get("id");
+    console.log("Backend: Attempting DB update for Reopen ID:", id);
+    if (id) {
+      try {
+        await prisma.reconciliationException.update({
+          where: { id: String(id) },
+          data: {
+            status: "OPEN",
+            resolvedAt: null,
+            resolutionReason: null,
+            resolvedBy: null,
+          },
+        });
+        return { success: true, intent: "reopen" };
+      } catch (error) {
+        console.error("Backend: Prisma DB Error during reopen:", error);
+        return { success: false, error: String(error) };
+      }
+    }
+  }
+
   if (intent === "sync") {
     let settings = await prisma.shopSettings.findUnique({
       where: { shop: session.shop },
     });
-    
+
     if (!settings) {
       settings = await prisma.shopSettings.create({
         data: { shop: session.shop },
@@ -145,7 +174,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.log("🚀 SCAN INITIATED! Fetching orders from Shopify...");
     const result = await runReconciliationScan(admin, session.shop);
     console.log("✅ SCAN COMPLETE! Found:", result);
-    
+
     await prisma.shopSettings.update({
       where: { shop: session.shop },
       data: { lastManualScanAt: new Date() },
@@ -173,6 +202,8 @@ export default function Index() {
         shopify.toast.show("Exceptions bulk resolved");
       } else if (fetcher.data.intent === "resolve") {
         shopify.toast.show("Exception resolved");
+      } else if (fetcher.data.intent === "reopen") {
+        shopify.toast.show("Exception reopened");
       }
     }
   }, [fetcher.state, fetcher.data, shopify]);
@@ -187,7 +218,7 @@ export default function Index() {
   const isResolving = fetcher.state === "submitting" || fetcher.state === "loading";
 
   const [activeException, setActiveException] = useState<ExceptionUI | null>(null);
-  
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
   const [selectedTab, setSelectedTab] = useState(0);
   const [queryValue, setQueryValue] = useState('');
@@ -200,12 +231,12 @@ export default function Index() {
 
   const appliedFilters = minExposure && !isNaN(Number(minExposure)) && Number(minExposure) > 0
     ? [
-        {
-          key: 'minExposure',
-          label: `Min Exposure: $${minExposure}`,
-          onRemove: () => setMinExposure(''),
-        },
-      ]
+      {
+        key: 'minExposure',
+        label: `Min Exposure: $${minExposure}`,
+        onRemove: () => setMinExposure(''),
+      },
+    ]
     : [];
 
   const handleClearAll = useCallback(() => {
@@ -243,6 +274,15 @@ export default function Index() {
     formData.append("intent", "resolve");
     formData.append("exceptionId", exceptionId);
     formData.append("resolutionReason", reason);
+    fetcher.submit(formData, { method: "POST", action: "?index" });
+    setActiveException(null);
+  }, [fetcher]);
+
+  const handleReopen = useCallback((id: string) => {
+    console.log("Frontend: Triggering reopen for ID:", id);
+    const formData = new FormData();
+    formData.append("intent", "reopen");
+    formData.append("id", id);
     fetcher.submit(formData, { method: "POST", action: "?index" });
     setActiveException(null);
   }, [fetcher]);
@@ -311,11 +351,8 @@ export default function Index() {
   }, [fetcher.state, fetcher.data, clearSelection]);
 
   const handleBulkResolve = useCallback(() => {
-    const formData = new FormData();
-    formData.append("intent", "bulk_resolve");
-    formData.append("ids", JSON.stringify(selectedResources));
-    fetcher.submit(formData, { method: "POST", action: "?index" });
-  }, [fetcher, selectedResources]);
+    setIsBulkModalOpen(true);
+  }, []);
 
   const handleExportCSV = useCallback(() => {
     const csvHeader = "Order,Issue,Item,Qty,Exposure,Age,Status\n";
@@ -361,9 +398,9 @@ export default function Index() {
     const numericOrderId = ex.orderId.split("/").pop();
 
     return (
-      <IndexTable.Row 
-        id={ex.id} 
-        key={ex.id} 
+      <IndexTable.Row
+        id={ex.id}
+        key={ex.id}
         position={index}
         selected={selectedResources.includes(ex.id)}
       >
@@ -412,7 +449,8 @@ export default function Index() {
   });
 
   return (
-    <Page
+    <Frame>
+      <Page
       title="DearRecon"
       subtitle="Refund & Return Reconciliation"
       primaryAction={{
@@ -422,7 +460,11 @@ export default function Index() {
         loading: isSyncing,
       }}
       secondaryActions={[
-        { content: "Export to CSV", onAction: handleExportCSV },
+        {
+          content: planType === "FREE" ? "Export to CSV (Pro)" : "Export to CSV",
+          disabled: planType === "FREE",
+          onAction: handleExportCSV
+        },
         ...(planType === "FREE" ? [{ content: "Upgrade to Pro", url: "/app/pricing" }] : [])
       ]}
     >
@@ -435,32 +477,11 @@ export default function Index() {
           <Layout.Section>
             <BlockStack gap="400">
               {/* Top Metrics Cards */}
-              <Grid>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
-                  <Card>
-                    <BlockStack gap="200">
-                      <Text as="h3" variant="headingSm" tone="subdued">Open Exceptions</Text>
-                      <Text as="p" variant="headingLg">{openExceptionsCount}</Text>
-                    </BlockStack>
-                  </Card>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
-                  <Card>
-                    <BlockStack gap="200">
-                      <Text as="h3" variant="headingSm" tone="subdued">Estimated Cost Exposure</Text>
-                      <Text as="p" variant="headingLg" tone="critical">{formattedTotalExposure}</Text>
-                    </BlockStack>
-                  </Card>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 4, md: 4, lg: 4, xl: 4 }}>
-                  <Card>
-                    <BlockStack gap="200">
-                      <Text as="h3" variant="headingSm" tone="subdued">Missing Items</Text>
-                      <Text as="p" variant="headingLg">{missingItems}</Text>
-                    </BlockStack>
-                  </Card>
-                </Grid.Cell>
-              </Grid>
+              <MetricsOverview
+                openExceptionsCount={openExceptionsCount}
+                formattedTotalExposure={formattedTotalExposure}
+                missingItems={missingItems}
+              />
 
               {/* Exception Table */}
               <Card padding="0">
@@ -483,11 +504,11 @@ export default function Index() {
                     loading: false,
                   }}
                   tabs={[
-                    { 
-                      id: 'open', 
+                    {
+                      id: 'open',
                       content: 'Action Required',
                       badge: openExceptionsCount > 0 ? openExceptionsCount.toString() : undefined,
-                      accessibilityLabel: 'Open exceptions' 
+                      accessibilityLabel: 'Open exceptions'
                     },
                     { id: 'resolved', content: 'Audit History', accessibilityLabel: 'Resolved exceptions' },
                   ]}
@@ -517,70 +538,70 @@ export default function Index() {
                   setMode={setMode}
                 />
                 <Box paddingBlockStart="400">
-                    {filteredExceptions.length === 0 ? (
-                      <DashboardEmptyState
-                        selectedTab={selectedTab}
-                        handleManualScan={handleRunScan}
-                        isSyncing={isSyncing}
-                        cooldownRemaining={cooldownRemaining}
-                        planType={planType}
-                        isCooldownActive={isCooldownActive}
-                      />
-                    ) : (
-                      <>
-                          <IndexTable
-                            resourceName={{ singular: "exception", plural: "exceptions" }}
-                            itemCount={paginatedExceptions.length}
-                            selectable={selectedTab === 0}
-                            selectedItemsCount={
-                              allResourcesSelected ? 'All' : selectedResources.length
-                            }
-                            onSelectionChange={handleSelectionChange}
-                            promotedBulkActions={[
-                              {
-                                content: 'Mark as resolved (Bulk)',
-                                onAction: handleBulkResolve,
-                              },
-                            ]}
-                            headings={[
-                              { title: "Order" },
-                              { title: "Issue" },
-                              { title: "Item" },
-                              { title: "Qty" },
-                              { title: "Exposure", alignment: "end" },
-                              { title: "Age" },
-                              { title: "Status" },
-                              { title: "" },
-                            ]}
-                          >
-                          {nav.state === "loading" || isSyncing ? (
-                            <IndexTable.Row id="loading-skeleton" position={0}>
-                              <IndexTable.Cell colSpan={8}>
-                                <Box paddingBlockStart="200" paddingBlockEnd="200">
-                                  <SkeletonBodyText lines={Math.max(paginatedExceptions.length, 5)} />
-                                </Box>
-                              </IndexTable.Cell>
-                            </IndexTable.Row>
-                          ) : (
-                            rowMarkup
-                          )}
-                        </IndexTable>
-                        {totalPages > 1 && (
-                          <Box padding="400">
-                            <BlockStack inlineAlign="center">
-                              <Pagination
-                                hasPrevious={currentPage > 1}
-                                onPrevious={() => setCurrentPage((prev) => prev - 1)}
-                                hasNext={currentPage < totalPages}
-                                onNext={() => setCurrentPage((prev) => prev + 1)}
-                                label={`${currentPage} of ${totalPages}`}
-                              />
-                            </BlockStack>
-                          </Box>
+                  {filteredExceptions.length === 0 ? (
+                    <DashboardEmptyState
+                      selectedTab={selectedTab}
+                      handleManualScan={handleRunScan}
+                      isSyncing={isSyncing}
+                      cooldownRemaining={cooldownRemaining}
+                      planType={planType}
+                      isCooldownActive={isCooldownActive}
+                    />
+                  ) : (
+                    <>
+                      <IndexTable
+                        resourceName={{ singular: "exception", plural: "exceptions" }}
+                        itemCount={paginatedExceptions.length}
+                        selectable={selectedTab === 0}
+                        selectedItemsCount={
+                          allResourcesSelected ? 'All' : selectedResources.length
+                        }
+                        onSelectionChange={handleSelectionChange}
+                        promotedBulkActions={[
+                          {
+                            content: 'Mark as resolved (Bulk)',
+                            onAction: handleBulkResolve,
+                          },
+                        ]}
+                        headings={[
+                          { title: "Order" },
+                          { title: "Issue" },
+                          { title: "Item" },
+                          { title: "Qty" },
+                          { title: "Exposure", alignment: "end" },
+                          { title: "Age" },
+                          { title: "Status" },
+                          { title: "" },
+                        ]}
+                      >
+                        {nav.state === "loading" || isSyncing ? (
+                          <IndexTable.Row id="loading-skeleton" position={0}>
+                            <IndexTable.Cell colSpan={8}>
+                              <Box paddingBlockStart="200" paddingBlockEnd="200">
+                                <SkeletonBodyText lines={Math.max(paginatedExceptions.length, 5)} />
+                              </Box>
+                            </IndexTable.Cell>
+                          </IndexTable.Row>
+                        ) : (
+                          rowMarkup
                         )}
-                      </>
-                    )}
-                  </Box>
+                      </IndexTable>
+                      {totalPages > 1 && (
+                        <Box padding="400">
+                          <BlockStack inlineAlign="center">
+                            <Pagination
+                              hasPrevious={currentPage > 1}
+                              onPrevious={() => setCurrentPage((prev) => prev - 1)}
+                              hasNext={currentPage < totalPages}
+                              onNext={() => setCurrentPage((prev) => prev + 1)}
+                              label={`${currentPage} of ${totalPages}`}
+                            />
+                          </BlockStack>
+                        </Box>
+                      )}
+                    </>
+                  )}
+                </Box>
               </Card>
             </BlockStack>
           </Layout.Section>
@@ -591,9 +612,19 @@ export default function Index() {
         activeException={activeException}
         onClose={handleModalClose}
         onResolve={handleResolveSubmit}
+        onReopen={handleReopen}
         isResolving={isResolving}
       />
+
+      <BulkResolveModal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        selectedIds={selectedResources as string[]}
+        isResolving={isResolving}
+        fetcher={fetcher}
+      />
     </Page>
+    </Frame>
   );
 }
 

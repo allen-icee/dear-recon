@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { BlockStack, Text, Grid, Button, ChoiceList } from "@shopify/polaris";
+import { useState } from "react";
+import { BlockStack, Text, Grid, Button, ChoiceList, InlineStack, Box, Modal } from "@shopify/polaris";
 
 export interface ExceptionUI {
   id: string;
@@ -27,6 +27,7 @@ interface ExceptionDetailModalProps {
   activeException: ExceptionUI | null;
   onClose: () => void;
   onResolve: (exceptionId: string, reason: string) => void;
+  onReopen?: (exceptionId: string) => void;
   isResolving: boolean;
 }
 
@@ -34,6 +35,7 @@ export function ExceptionDetailModal({
   activeException,
   onClose,
   onResolve,
+  onReopen,
   isResolving,
 }: ExceptionDetailModalProps) {
   const [resolutionReason, setResolutionReason] = useState<string[]>(["Restocked"]);
@@ -44,74 +46,50 @@ export function ExceptionDetailModal({
     }
   };
 
-  useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const modal = document.getElementById("exception-detail-modal") as any;
-    if (activeException !== null) {
-      modal?.show();
-    } else {
-      modal?.hide();
-    }
-  }, [activeException]);
-
   return (
-    <ui-modal id="exception-detail-modal">
-      <ui-title-bar title="Exception Details">
-        {activeException?.status === "OPEN" && (
-          <button variant="primary" onClick={handleResolveSubmit} disabled={isResolving}>Submit Resolution</button>
-        )}
-        <button onClick={onClose}>Close</button>
-      </ui-title-bar>
-      <div style={{ padding: '16px' }}>
+    <Modal onClose={onClose} open={!!activeException} title="Exception Details">
+      <Modal.Section>
+        <div style={{ padding: '16px' }}>
         {activeException && (
           <BlockStack gap="400">
             <BlockStack gap="200">
               <Text variant="headingMd" as="h3">
                 What Happened
               </Text>
-              <Grid>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" tone="subdued">Refunded Quantity:</Text>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" fontWeight="bold">{activeException.refundQuantity}</Text>
-                </Grid.Cell>
-                
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" tone="subdued">Returned/Restocked Quantity:</Text>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" fontWeight="bold">{activeException.returnQuantity}</Text>
-                </Grid.Cell>
-                
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" tone="subdued">Missing Reconciliation:</Text>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" tone="critical" fontWeight="bold">{activeException.discrepancyQuantity}</Text>
-                </Grid.Cell>
-                
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" tone="subdued">Total Financial Exposure:</Text>
-                </Grid.Cell>
-                <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                  <Text variant="bodyMd" as="p" fontWeight="bold">
-                    {new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: activeException.currencyCode,
-                    }).format(Number(activeException.estimatedExposure))}
-                  </Text>
-                </Grid.Cell>
-              </Grid>
+              <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                <BlockStack gap="200">
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Item Name</Text>
+                    <Text as="span" fontWeight="bold">{activeException.itemName || "Unknown Item"}</Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">SKU</Text>
+                    <Text as="span" fontWeight="bold">{activeException.sku || "N/A"}</Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Refunded Quantity</Text>
+                    <Text as="span" fontWeight="bold">{activeException.refundQuantity}</Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Returned/Restocked Quantity</Text>
+                    <Text as="span" fontWeight="bold">{activeException.returnQuantity}</Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Missing Reconciliation</Text>
+                    <Text as="span" tone="critical" fontWeight="bold">{activeException.discrepancyQuantity}</Text>
+                  </InlineStack>
+                  <InlineStack align="space-between">
+                    <Text as="span" tone="subdued">Total Financial Exposure</Text>
+                    <Text as="span" fontWeight="bold">
+                      {new Intl.NumberFormat("en-US", {
+                        style: "currency",
+                        currency: activeException.currencyCode,
+                      }).format(Number(activeException.estimatedExposure))}
+                    </Text>
+                  </InlineStack>
+                </BlockStack>
+              </Box>
             </BlockStack>
-
-            <Button
-              variant="primary"
-              url={`shopify:admin/orders/${activeException.orderId.split("/").pop()}`}
-              target="_parent"
-            >
-              Open Order in Shopify
-            </Button>
 
             {activeException.status === "OPEN" ? (
               <ChoiceList
@@ -130,22 +108,55 @@ export function ExceptionDetailModal({
                 <Text variant="headingMd" as="h3">
                   Resolution Details
                 </Text>
-                <Text variant="bodyMd" as="p">
-                  Resolved By: {activeException.resolvedBy || "System"}
-                </Text>
-                <Text variant="bodyMd" as="p">
-                  Reason: {activeException.resolutionReason}
-                </Text>
-                {activeException.resolvedAt && (
-                  <Text variant="bodyMd" as="p">
-                    Date: {new Date(activeException.resolvedAt).toLocaleString()}
-                  </Text>
-                )}
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <BlockStack gap="200">
+                    <InlineStack align="space-between">
+                      <Text as="span" tone="subdued">Resolved By</Text>
+                      <Text as="span" fontWeight="bold">{activeException.resolvedBy || "System"}</Text>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="span" tone="subdued">Reason</Text>
+                      <Text as="span" fontWeight="bold">{activeException.resolutionReason || ""}</Text>
+                    </InlineStack>
+                    {activeException.resolvedAt && (
+                      <InlineStack align="space-between">
+                        <Text as="span" tone="subdued">Date</Text>
+                        <Text as="span" fontWeight="bold">{new Date(activeException.resolvedAt).toLocaleString()}</Text>
+                      </InlineStack>
+                    )}
+                  </BlockStack>
+                </Box>
               </BlockStack>
             )}
+
+            <InlineStack align="end" gap="300">
+              <Button
+                url={`shopify:admin/orders/${activeException.orderId.split("/").pop()}`}
+                external
+              >
+                Open Order in Shopify
+              </Button>
+              {activeException.status === "OPEN" ? (
+                <Button variant="primary" onClick={handleResolveSubmit} loading={isResolving}>
+                  Submit Resolution
+                </Button>
+              ) : (
+                onReopen && (
+                  <Button 
+                    variant="primary"
+                    tone="critical" 
+                    onClick={() => { onReopen(activeException.id); onClose(); }}
+                    loading={isResolving}
+                  >
+                    Reopen Exception
+                  </Button>
+                )
+              )}
+            </InlineStack>
           </BlockStack>
         )}
       </div>
-    </ui-modal>
+      </Modal.Section>
+    </Modal>
   );
 }

@@ -95,6 +95,7 @@ export default function Pricing() {
                     <List.Item>1 manual scan per 24 hours</List.Item>
                     <List.Item>Full audit & resolution workflow</List.Item>
                     <List.Item>Community support</List.Item>
+                    <List.Item>No CSV Exports</List.Item>
                   </List>
                   <Box paddingBlockStart="200">
                     {planType === "FREE" ? (
@@ -128,6 +129,7 @@ export default function Pricing() {
                     </List.Item>
                     <List.Item>Unlimited manual scans</List.Item>
                     <List.Item>Priority support</List.Item>
+                    <List.Item>CSV Data Exports</List.Item>
                   </List>
                   <Box paddingBlockStart="200">
                     <Button 

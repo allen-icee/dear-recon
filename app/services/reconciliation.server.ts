@@ -214,6 +214,7 @@ export async function processOrderReconciliation(order: any, shop: string, setti
           returnQuantity,
           discrepancyQuantity,
           estimatedExposure: exposure.toDecimal(),
+          itemName: lineItem.name,
         },
         create: {
           shop,
