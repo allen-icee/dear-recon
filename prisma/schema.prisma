@@ -1,18 +1,14 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
-// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
-// enough when changing adapters.
-// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
+/// Standard Shopify App Session storage for authentication and offline tokens.
 model Session {
   id            String    @id
   shop          String
@@ -41,6 +37,7 @@ model MerchantSettings {
   updatedAt DateTime @updatedAt
 }
 
+/// Application configuration settings specific to each merchant's shop.
 model ShopSettings {
   id              String   @id @default(cuid())
   shop            String   @unique
@@ -52,6 +49,7 @@ model ShopSettings {
   updatedAt       DateTime  @updatedAt
 }
 
+/// Core domain model: Records detailing identified discrepancies between order refunds and returns.
 model ReconciliationException {
   id                  String    @id @default(cuid())
   shop                String

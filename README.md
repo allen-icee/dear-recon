@@ -6,14 +6,14 @@ dear-recon is an inventory reconciliation Shopify app built with Remix, React, a
 - **Protected Customer Data Access:** Safely leverages `read_orders` and `read_returns` scopes to access essential data.
 - **Polaris UI Dashboard:** Clean, intuitive interface for merchants to view, manage, and resolve inventory exceptions.
 - **Seamless OAuth Integration:** Quick and secure installation process using Shopify's robust authentication.
-- **Local Data Storage:** Uses SQLite & Prisma for reliable local data storage to track scan history and resolved discrepancies.
+- **Robust Data Storage:** Uses PostgreSQL & Prisma for reliable, production-ready data storage to track scan history and resolved discrepancies.
 
 ## Languages & Tools (⌐■_■)
 - ![Shopify](https://img.shields.io/badge/Shopify-95BF47?style=for-the-badge&logo=shopify&logoColor=white)
 - ![Remix](https://img.shields.io/badge/remix-%23000.svg?style=for-the-badge&logo=remix&logoColor=white)
 - ![React](https://img.shields.io/badge/react-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)
 - ![Prisma](https://img.shields.io/badge/Prisma-3982CE?style=for-the-badge&logo=Prisma&logoColor=white)
-- ![SQLite](https://img.shields.io/badge/sqlite-%2307405e.svg?style=for-the-badge&logo=sqlite&logoColor=white)
+- ![PostgreSQL](https://img.shields.io/badge/postgresql-4169e1?style=for-the-badge&logo=postgresql&logoColor=white)
 
 ## 🚀 Getting Started
 
@@ -31,6 +31,13 @@ Set up your environment variables based on standard Shopify CLI variables. Ensur
 ```
 SHOPIFY_API_KEY=your_api_key
 SHOPIFY_API_SECRET=your_api_secret
+DATABASE_URL=postgresql://user:password@localhost:5432/dear_recon
+DIRECT_URL=postgresql://user:password@localhost:5432/dear_recon
+```
+
+Push the database schema using Prisma:
+```bash
+npx prisma db push
 ```
 
 ### Run

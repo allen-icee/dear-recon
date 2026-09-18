@@ -161,8 +161,18 @@ export const RECONCILIATION_QUERY = `
 `;
 
 /**
- * Calculates discrepancies between refunded and returned line items, ignoring unfulfilled cancellations.
- * Creates or auto-resolves exceptions based on exposure settings.
+ * Core engine logic: Calculates discrepancies between refunded and returned line items.
+ * 
+ * - Parses the order's refunds to map refunded quantities per line item (ignoring 'CANCEL' restocks which are just unfulfilled items).
+ * - Parses the order's returns to map physically returned quantities per line item.
+ * - Computes the discrepancy (refunded - returned).
+ * - If discrepancy > 0 and exposure exceeds minimum threshold, creates an OPEN Exception.
+ * - If discrepancy <= 0, automatically resolves any existing OPEN Exception.
+ * 
+ * @param order - The order payload fetched from Shopify GraphQL
+ * @param shop - The merchant's myshopify.com domain
+ * @param settings - Merchant configuration settings (e.g. minimumExposure)
+ * @returns The number of new exceptions generated
  */
 export async function processOrderReconciliation(order: any, shop: string, settings: { minimumExposure: number }) {
   let exceptionsCount = 0;

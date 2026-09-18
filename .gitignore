@@ -16,6 +16,12 @@ database.sqlite
 .env
 .env.*
 
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
 
 
 

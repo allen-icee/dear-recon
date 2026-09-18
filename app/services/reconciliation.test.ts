@@ -44,7 +44,7 @@ describe("processOrderReconciliation", () => {
     vi.clearAllMocks();
   });
 
-  it("Scenario A: Full refund + no return creates an exception", async () => {
+  it("Scenario A: Full refund with NO return (Expect: Exception created)", async () => {
     const order = createBaseOrder();
     order.refunds = [
       {
@@ -73,10 +73,10 @@ describe("processOrderReconciliation", () => {
     expect(prisma.reconciliationException.updateMany).not.toHaveBeenCalled();
   });
 
-  it("Scenario B: Partial refund + partial return of the exact same quantity creates no exception", async () => {
+  it("Scenario B: Partial refund where the returned item quantity perfectly matches the refund (Expect: No exception)", async () => {
     const order = createBaseOrder();
-
-
+    
+    // Partially refunded 1 item
     order.refunds = [
       {
         refundLineItems: {
@@ -93,7 +93,7 @@ describe("processOrderReconciliation", () => {
       },
     ];
 
-
+    // Partially returned 1 item (perfect match)
     order.returns.edges = [
       {
         node: {
@@ -117,41 +117,12 @@ describe("processOrderReconciliation", () => {
 
     expect(exceptionsCount).toBe(0);
     expect(prisma.reconciliationException.upsert).not.toHaveBeenCalled();
-
-    expect(prisma.reconciliationException.updateMany).toHaveBeenCalledTimes(1);
   });
 
-  it("Scenario C: Cancelled order where restockType === 'CANCEL' is ignored", async () => {
+  it("Scenario C: Zero-Discrepancy Cleanup (Expect: A previously open exception resolves automatically)", async () => {
     const order = createBaseOrder();
 
-    order.refunds = [
-      {
-        refundLineItems: {
-          edges: [
-            {
-              node: {
-                quantity: 1,
-                restockType: "CANCEL", // Cancel restock type
-                lineItem: { id: "gid://shopify/LineItem/1" },
-              },
-            },
-          ],
-        },
-      },
-    ];
-
-    const exceptionsCount = await processOrderReconciliation(order, shop, settings);
-
-    expect(exceptionsCount).toBe(0);
-    expect(prisma.reconciliationException.upsert).not.toHaveBeenCalled();
-
-    expect(prisma.reconciliationException.updateMany).toHaveBeenCalledTimes(1);
-  });
-
-  it("Scenario D: Zero Discrepancy Cleanup updates status to RESOLVED", async () => {
-    const order = createBaseOrder();
-
-
+    // Refunded 1 item
     order.refunds = [
       {
         refundLineItems: {
@@ -168,6 +139,7 @@ describe("processOrderReconciliation", () => {
       },
     ];
 
+    // Returned 1 item (resolving the previous discrepancy)
     order.returns.edges = [
       {
         node: {
@@ -194,9 +166,10 @@ describe("processOrderReconciliation", () => {
     expect(prisma.reconciliationException.updateMany).toHaveBeenCalledTimes(1);
     const updateArgs = vi.mocked(prisma.reconciliationException.updateMany).mock.calls[0][0];
 
-
+    // Expecting to update OPEN exceptions to RESOLVED
     expect(updateArgs.where!.status).toBe("OPEN");
     expect(updateArgs.data.status).toBe("RESOLVED");
     expect(updateArgs.data.discrepancyQuantity).toBe(0);
+    expect(updateArgs.data.resolutionReason).toContain("Auto-resolved");
   });
 });

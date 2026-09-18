@@ -40,17 +40,51 @@ import { ExceptionDetailModal, type ExceptionUI } from "../components/dashboard/
 import { MetricsOverview } from "../components/dashboard/MetricsOverview";
 import { BulkResolveModal } from "../components/dashboard/BulkResolveModal";
 
+/**
+ * Loader function: Fetches settings and existing exceptions concurrently to serve the initial UI state.
+ */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { session, admin } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
 
-  let settings = await prisma.shopSettings.findUnique({
-    where: { shop: session.shop },
-  });
+  const [settingsResult, rawExceptions] = await Promise.all([
+    prisma.shopSettings.findUnique({
+      where: { shop: session.shop },
+      select: { planType: true, lastManualScanAt: true }
+    }),
+    prisma.reconciliationException.findMany({
+      where: { shop: session.shop },
+      orderBy: [
+        { status: "asc" },
+        { estimatedExposure: "desc" },
+      ],
+      select: {
+        id: true,
+        shop: true,
+        orderId: true,
+        orderName: true,
+        itemName: true,
+        lineItemId: true,
+        variantId: true,
+        sku: true,
+        refundQuantity: true,
+        returnQuantity: true,
+        discrepancyQuantity: true,
+        estimatedExposure: true,
+        currencyCode: true,
+        status: true,
+        createdAt: true,
+        resolutionReason: true,
+        resolvedBy: true,
+        resolvedAt: true
+      }
+    })
+  ]);
 
+  let settings = settingsResult;
   if (!settings) {
     settings = await prisma.shopSettings.create({
       data: { shop: session.shop },
+      select: { planType: true, lastManualScanAt: true }
     });
   }
 
@@ -64,16 +98,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  const rawExceptions = await prisma.reconciliationException.findMany({
-    where: {
-      shop: session.shop,
-    },
-    orderBy: [
-      { status: "asc" },
-      { estimatedExposure: "desc" },
-    ],
-  });
-
   const exceptions = rawExceptions.map((ex) => ({
     ...ex,
     estimatedExposure: ex.estimatedExposure.toString(),
@@ -84,8 +108,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { exceptions, planType, cooldownRemaining };
 };
 
+/**
+ * Action function: Handles UI form submissions like resolving exceptions, reopening them, or triggering manual scans.
+ */
 export const action = async ({ request }: ActionFunctionArgs) => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
 
@@ -629,5 +655,8 @@ export default function Index() {
 }
 
 export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
+  const boundHeaders = boundary.headers(headersArgs);
+  const newHeaders = new Headers(boundHeaders);
+  newHeaders.set("Cache-Control", "private, max-age=10, stale-while-revalidate=59");
+  return newHeaders;
 };

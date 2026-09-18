@@ -43,6 +43,11 @@ export function ExceptionDetailModal({
   const handleResolveSubmit = () => {
     if (activeException) {
       onResolve(activeException.id, resolutionReason[0]);
+      setTimeout(() => {
+        const modal = document.getElementById('exception-detail-modal') as any;
+        modal?.hide();
+        onClose();
+      }, 150);
     }
   };
 
@@ -126,6 +131,23 @@ export function ExceptionDetailModal({
                     )}
                   </BlockStack>
                 </Box>
+                {onReopen && (
+                  <Button 
+                    variant="primary"
+                    tone="critical" 
+                    onClick={() => { 
+                      onReopen(activeException.id); 
+                      setTimeout(() => {
+                        const modal = document.getElementById('exception-detail-modal') as any;
+                        modal?.hide();
+                        onClose();
+                      }, 150);
+                    }}
+                    loading={isResolving}
+                  >
+                    Reopen Exception
+                  </Button>
+                )}
               </BlockStack>
             )}
 
@@ -136,21 +158,10 @@ export function ExceptionDetailModal({
               >
                 Open Order in Shopify
               </Button>
-              {activeException.status === "OPEN" ? (
+              {activeException.status === "OPEN" && (
                 <Button variant="primary" onClick={handleResolveSubmit} loading={isResolving}>
                   Submit Resolution
                 </Button>
-              ) : (
-                onReopen && (
-                  <Button 
-                    variant="primary"
-                    tone="critical" 
-                    onClick={() => { onReopen(activeException.id); onClose(); }}
-                    loading={isResolving}
-                  >
-                    Reopen Exception
-                  </Button>
-                )
               )}
             </InlineStack>
           </BlockStack>
