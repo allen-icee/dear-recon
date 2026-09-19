@@ -4,7 +4,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useFetcher, useNavigation } from "react-router";
+import { useLoaderData, useFetcher, useNavigation, useNavigate, useLocation } from "react-router";
 import {
   Page,
   Layout,
@@ -30,7 +30,7 @@ import {
   Frame,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
+import { authenticate, PRO_PLAN } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import prisma from "../db.server";
 import { runReconciliationScan } from "../services/reconciliation.server";
@@ -44,7 +44,7 @@ import { BulkResolveModal } from "../components/dashboard/BulkResolveModal";
  * Loader function: Fetches settings and existing exceptions concurrently to serve the initial UI state.
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
 
   const [settingsResult, rawExceptions] = await Promise.all([
     prisma.shopSettings.findUnique({
@@ -88,7 +88,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
   }
 
-  const planType = settings.planType;
+  const billingCheck = await billing.check({
+    plans: [PRO_PLAN],
+    isTest: true,
+  });
+
+  const planType = billingCheck.hasActivePayment ? "PRO" : "FREE";
   let cooldownRemaining = 0;
 
   if (planType === "FREE" && settings.lastManualScanAt) {
@@ -105,7 +110,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     resolvedAt: ex.resolvedAt ? ex.resolvedAt.toISOString() : null,
   }));
 
-  return { exceptions, planType, cooldownRemaining };
+  return Response.json({ exceptions, planType, cooldownRemaining });
 };
 
 /**
@@ -220,6 +225,8 @@ export default function Index() {
   const fetcher = useFetcher();
   const syncFetcher = useFetcher();
   const nav = useNavigation();
+  const navigate = useNavigate();
+  const location = useLocation();
   const shopify = useAppBridge();
 
   useEffect(() => {
@@ -491,7 +498,7 @@ export default function Index() {
           disabled: planType === "FREE",
           onAction: handleExportCSV
         },
-        ...(planType === "FREE" ? [{ content: "Upgrade to Pro", url: "/app/pricing" }] : [])
+        ...(planType === "FREE" ? [{ content: "Upgrade to Pro", onAction: () => navigate("/app/pricing" + location.search) }] : [])
       ]}
     >
       <BlockStack gap="400">

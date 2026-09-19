@@ -9,11 +9,11 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
-export const MONTHLY_PLAN = "Monthly subscription" as const;
+export const PRO_PLAN = "Pro Plan" as const;
 
 import type { BillingConfigItem } from "@shopify/shopify-api";
 
-const monthlyPlanConfig: BillingConfigItem = {
+const proPlanConfig: BillingConfigItem = {
   replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
   trialDays: 7,
   lineItems: [
@@ -35,7 +35,7 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   billing: {
-    [MONTHLY_PLAN]: monthlyPlanConfig,
+    [PRO_PLAN]: proPlanConfig,
   },
   future: {
     expiringOfflineAccessTokens: true,

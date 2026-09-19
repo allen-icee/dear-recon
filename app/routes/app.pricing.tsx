@@ -1,7 +1,8 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit, useNavigation, Form } from "react-router";
+
 import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid } from "@shopify/polaris";
-import { authenticate, MONTHLY_PLAN } from "../shopify.server";
+import { authenticate, PRO_PLAN } from "../shopify.server";
 import prisma from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -11,7 +12,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   
 
   const billingCheck = await billing.check({
-    plans: [MONTHLY_PLAN],
+    plans: [PRO_PLAN],
     isTest: true,
   });
 
@@ -35,36 +36,34 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { session, admin, billing } = await authenticate.admin(request);
+  const { billing, redirect } = await authenticate.admin(request);
   const formData = await request.formData();
+  const intent = formData.get("intent");
 
-  if (formData.get("intent") === "downgrade") {
-    const billingCheck = await billing.check({
-      plans: [MONTHLY_PLAN],
+  if (intent === "downgrade") {
+    const check = await billing.check({
+      plans: ["Pro Plan"],
       isTest: true,
     });
 
-    if (billingCheck.hasActivePayment) {
+    if (check.hasActivePayment) {
       await billing.cancel({
-        subscriptionId: billingCheck.appSubscriptions[0].id,
+        subscriptionId: check.appSubscriptions[0].id,
         isTest: true,
         prorate: true,
       });
     }
 
-    await prisma.shopSettings.update({
-      where: { shop: session.shop },
-      data: { planType: "FREE" },
-    });
-    
-    return { success: true };
+    return redirect("/app/pricing");
   }
 
-  return await billing.request({
-    plan: MONTHLY_PLAN,
-    isTest: true,
-  });
+  if (intent === "upgrade") {
+    await billing.request({ 
+      plan: "Pro Plan", 
+      isTest: true 
+    });
+  }
+  return null;
 };
 
 export default function Pricing() {
@@ -101,7 +100,7 @@ export default function Pricing() {
                     {planType === "FREE" ? (
                       <Button disabled size="large" fullWidth>Current Plan</Button>
                     ) : (
-                      <Form method="post">
+                      <Form method="post" reloadDocument>
                         <input type="hidden" name="intent" value="downgrade" />
                         <Button submit size="large" fullWidth>Downgrade to Free</Button>
                       </Form>
@@ -132,16 +131,16 @@ export default function Pricing() {
                     <List.Item>CSV Data Exports</List.Item>
                   </List>
                   <Box paddingBlockStart="200">
-                    <Button 
-                      variant={planType === "PRO" ? undefined : "primary"}
-                      disabled={planType === "PRO"} 
-                      onClick={handleUpgrade}
-                      loading={isUpgrading}
-                      size="large"
-                      fullWidth
-                    >
-                      {planType === "PRO" ? "Current Plan" : "Upgrade to Pro"}
-                    </Button>
+                    {planType === "PRO" ? (
+                      <Button disabled size="large" fullWidth>Current Plan</Button>
+                    ) : (
+                      <Form method="post" reloadDocument>
+                        <input type="hidden" name="intent" value="upgrade" />
+                        <Button submit variant="primary" loading={isUpgrading} size="large" fullWidth>
+                          Upgrade to Pro
+                        </Button>
+                      </Form>
+                    )}
                   </Box>
                 </BlockStack>
               </Card>

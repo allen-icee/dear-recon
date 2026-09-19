@@ -2,7 +2,7 @@
 
 client_id = "d0cbedfd14ec46c440f48514a1ce035c"
 name = "dear-recon"
-application_url = "https://example.com"
+application_url = "https://dear-recon.onrender.com"
 embedded = true
 
 [build]
@@ -12,21 +12,21 @@ automatically_update_urls_on_dev = true
 api_version = "2026-10"
 
   [[webhooks.subscriptions]]
+  uri = "/webhooks"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  topics = [ "orders/updated", "refunds/create", "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
 
-  [[webhooks.subscriptions]]
-  uri = "/webhooks"
-  topics = [ "app/uninstalled", "orders/updated", "refunds/create" ]
-
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_orders,read_returns,read_inventory,read_products"
-
-[webhooks.privacy_compliance]
-customer_deletion_url = "/webhooks"
-customer_data_request_url = "/webhooks"
-shop_deletion_url = "/webhooks"
+scopes = "read_inventory,read_orders,read_products,read_returns"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://dear-recon.onrender.com/auth/callback",
+  "https://dear-recon.onrender.com/auth/shopify/callback",
+  "https://dear-recon.onrender.com/api/auth/callback"
+]
