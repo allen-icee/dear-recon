@@ -9,8 +9,12 @@ import {
   FormLayout,
   TextField,
   Select,
+  Checkbox,
+  PageActions,
+  FooterHelp,
+  Link,
+  Text
 } from "@shopify/polaris";
-import { SaveBar } from "@shopify/app-bridge-react";
 import prisma from "../db.server";
 import { useState, useCallback } from "react";
 
@@ -29,6 +33,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       lookbackDays: 30,
       planType: "FREE",
       lastManualScanAt: null,
+      autoTagOrders: false,
+      autoResolveExceptions: false,
+      dailySummaryEmails: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -45,17 +52,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const minimumExposure = formData.get("minimumExposure");
   const lookbackDays = formData.get("lookbackDays");
+  const autoTagOrders = formData.get("autoTagOrders") === "true";
+  const autoResolveExceptions = formData.get("autoResolveExceptions") === "true";
+  const dailySummaryEmails = formData.get("dailySummaryEmails") === "true";
 
   await prisma.shopSettings.upsert({
     where: { shop },
     update: {
       minimumExposure: minimumExposure ? Number(minimumExposure) : 0,
       lookbackDays: lookbackDays ? Number(lookbackDays) : 30,
+      autoTagOrders,
+      autoResolveExceptions,
+      dailySummaryEmails,
     },
     create: {
       shop,
       minimumExposure: minimumExposure ? Number(minimumExposure) : 0,
       lookbackDays: lookbackDays ? Number(lookbackDays) : 30,
+      autoTagOrders,
+      autoResolveExceptions,
+      dailySummaryEmails,
     }
   });
 
@@ -70,37 +86,40 @@ export default function Settings() {
 
   const [minimumExposure, setMinimumExposure] = useState(settings.minimumExposure);
   const [lookbackDays, setLookbackDays] = useState(settings.lookbackDays?.toString() || "30");
+  const [autoTagOrders, setAutoTagOrders] = useState(settings.autoTagOrders);
+  const [autoResolveExceptions, setAutoResolveExceptions] = useState(settings.autoResolveExceptions);
+  const [dailySummaryEmails, setDailySummaryEmails] = useState(settings.dailySummaryEmails);
 
-  const isDirty = minimumExposure !== settings.minimumExposure || lookbackDays !== (settings.lookbackDays?.toString() || "30");
+  const isDirty = 
+    minimumExposure !== settings.minimumExposure || 
+    lookbackDays !== (settings.lookbackDays?.toString() || "30") ||
+    autoTagOrders !== settings.autoTagOrders ||
+    autoResolveExceptions !== settings.autoResolveExceptions ||
+    dailySummaryEmails !== settings.dailySummaryEmails;
 
   const handleSave = useCallback(() => {
     submit(
-      { minimumExposure, lookbackDays },
+      { 
+        minimumExposure, 
+        lookbackDays, 
+        autoTagOrders: autoTagOrders ? "true" : "false",
+        autoResolveExceptions: autoResolveExceptions ? "true" : "false",
+        dailySummaryEmails: dailySummaryEmails ? "true" : "false"
+      },
       { method: "post" }
     );
-  }, [minimumExposure, lookbackDays, submit]);
-
-  const handleDiscard = useCallback(() => {
-    setMinimumExposure(settings.minimumExposure);
-    setLookbackDays(settings.lookbackDays?.toString() || "30");
-  }, [settings]);
+  }, [minimumExposure, lookbackDays, autoTagOrders, autoResolveExceptions, dailySummaryEmails, submit]);
 
   return (
     <Page 
-      title="DearRecon"
-      subtitle="Engine Configuration"
+      title="Settings"
+      subtitle="Configure how DearRecon scans and automates your store."
       backAction={{ content: 'Dashboard', url: '/app' }}
     >
-      {isDirty && (
-        <SaveBar id="my-save-bar">
-          <button variant="primary" id="save" onClick={handleSave} disabled={isSaving}>Save</button>
-          <button id="discard" onClick={handleDiscard} disabled={isSaving}>Discard</button>
-        </SaveBar>
-      )}
       <Layout>
         <Layout.AnnotatedSection
-          title="Reconciliation Configuration"
-          description="Define the engine parameters for the daily order scan and how exceptions are handled."
+          title="Scan Engine"
+          description="Define the engine parameters for the daily order scan and threshold limits."
         >
           <Card>
             <BlockStack gap="400">
@@ -131,6 +150,56 @@ export default function Settings() {
             </BlockStack>
           </Card>
         </Layout.AnnotatedSection>
+
+        <Layout.AnnotatedSection
+          title="Automations & Workflow"
+          description="Save time by automating repetitive tasks when exceptions are found."
+        >
+          <Card>
+            <BlockStack gap="400">
+              <Checkbox
+                label="Auto-tag Shopify Orders"
+                helpText="Automatically add a 'DearRecon: Exception' tag to Shopify orders when a discrepancy is detected."
+                checked={autoTagOrders}
+                onChange={setAutoTagOrders}
+              />
+              <Checkbox
+                label="Auto-resolve Minor Exceptions"
+                helpText="Automatically resolve and clear exceptions that fall below your minimum exposure threshold."
+                checked={autoResolveExceptions}
+                onChange={setAutoResolveExceptions}
+              />
+              <Checkbox
+                label="Daily Summary Emails"
+                helpText="Receive a daily digest email outlining any new discrepancies found by the background scanner."
+                checked={dailySummaryEmails}
+                onChange={setDailySummaryEmails}
+              />
+            </BlockStack>
+          </Card>
+        </Layout.AnnotatedSection>
+
+        <Layout.Section>
+          <PageActions
+            primaryAction={{
+              content: 'Save Configuration',
+              onAction: handleSave,
+              loading: isSaving,
+              disabled: !isDirty,
+            }}
+          />
+        </Layout.Section>
+        
+        <Layout.Section>
+          <FooterHelp>
+            <Text as="span">Need help? Email us at </Text>
+            <Link url="mailto:support@dearrecon.com">support@dearrecon.com</Link>. 
+            <Text as="span"> View our </Text>
+            <Link url="https://dearrecon.com/privacy-policy" target="_blank">Privacy Policy</Link>
+            <Text as="span"> and </Text>
+            <Link url="https://dearrecon.com/terms-of-service" target="_blank">Terms of Service</Link>.
+          </FooterHelp>
+        </Layout.Section>
       </Layout>
     </Page>
   );
