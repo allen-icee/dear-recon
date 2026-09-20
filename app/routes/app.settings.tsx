@@ -41,7 +41,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   }
 
-  return { settings: { ...settings, minimumExposure: settings.minimumExposure.toString() } };
+  return { 
+    settings: { ...settings, minimumExposure: settings.minimumExposure.toString() },
+    planType: settings.planType
+  };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -79,10 +82,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Settings() {
-  const { settings } = useLoaderData<typeof loader>();
+  const { settings, planType } = useLoaderData<typeof loader>();
   const submit = useSubmit();
   const nav = useNavigation();
   const isSaving = nav.state === "submitting";
+  const isFree = planType === "FREE";
 
   const [minimumExposure, setMinimumExposure] = useState(settings.minimumExposure);
   const [lookbackDays, setLookbackDays] = useState(settings.lookbackDays?.toString() || "30");
@@ -157,23 +161,37 @@ export default function Settings() {
         >
           <Card>
             <BlockStack gap="400">
+              {isFree && (
+                <Card background="bg-surface-warning">
+                  <BlockStack gap="200">
+                    <Text variant="headingSm" as="h3">Pro Feature</Text>
+                    <Text as="p">Upgrade to the Pro plan to unlock automations and background workflows.</Text>
+                    <InlineStack>
+                      <Button url="/app/pricing" size="micro">Upgrade</Button>
+                    </InlineStack>
+                  </BlockStack>
+                </Card>
+              )}
               <Checkbox
                 label="Auto-tag Shopify Orders"
                 helpText="Automatically add a 'DearRecon: Exception' tag to Shopify orders when a discrepancy is detected."
                 checked={autoTagOrders}
                 onChange={setAutoTagOrders}
+                disabled={isFree}
               />
               <Checkbox
                 label="Auto-resolve Minor Exceptions"
                 helpText="Automatically resolve and clear exceptions that fall below your minimum exposure threshold."
                 checked={autoResolveExceptions}
                 onChange={setAutoResolveExceptions}
+                disabled={isFree}
               />
               <Checkbox
                 label="Daily Summary Emails"
                 helpText="Receive a daily digest email outlining any new discrepancies found by the background scanner."
                 checked={dailySummaryEmails}
                 onChange={setDailySummaryEmails}
+                disabled={isFree}
               />
             </BlockStack>
           </Card>
