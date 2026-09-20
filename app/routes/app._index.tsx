@@ -120,102 +120,107 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
 
-  const intent = formData.get("intent");
-  console.log("Backend: Received POST request with intent:", intent);
-  const exceptionId = formData.get("exceptionId")?.toString();
-  const resolutionReason = formData.get("resolutionReason")?.toString();
+  try {
+    const intent = formData.get("intent");
+    console.log("Backend: Received POST request with intent:", intent);
+    const exceptionId = formData.get("exceptionId")?.toString();
+    const resolutionReason = formData.get("resolutionReason")?.toString();
 
-  if (intent === "resolve" && exceptionId) {
-    await prisma.reconciliationException.updateMany({
-      where: {
-        id: exceptionId,
-        shop: session.shop,
-      },
-      data: {
-        status: "RESOLVED",
-        resolvedAt: new Date(),
-        resolutionReason: resolutionReason,
-        resolvedBy: session.shop,
-      },
-    });
-    return { success: true, intent: "resolve" };
-  }
-
-  if (intent === "bulk_resolve") {
-    const idsString = formData.get("ids")?.toString();
-    const bulkReason = formData.get("bulkReason")?.toString() || "Bulk Resolved manually";
-    const ids = idsString ? JSON.parse(idsString) : [];
-    if (ids.length > 0) {
+    if (intent === "resolve" && exceptionId) {
       await prisma.reconciliationException.updateMany({
         where: {
-          id: { in: ids },
+          id: exceptionId,
           shop: session.shop,
         },
         data: {
           status: "RESOLVED",
           resolvedAt: new Date(),
-          resolutionReason: bulkReason,
+          resolutionReason: resolutionReason,
           resolvedBy: session.shop,
         },
       });
+      return { success: true, intent: "resolve" };
     }
-    return { success: true, intent: "bulk_resolve" };
-  }
 
-  if (intent === "reopen") {
-    const id = formData.get("id");
-    console.log("Backend: Attempting DB update for Reopen ID:", id);
-    if (id) {
-      try {
-        await prisma.reconciliationException.update({
-          where: { id: String(id) },
+    if (intent === "bulk_resolve") {
+      const idsString = formData.get("ids")?.toString();
+      const bulkReason = formData.get("bulkReason")?.toString() || "Bulk Resolved manually";
+      const ids = idsString ? JSON.parse(idsString) : [];
+      if (ids.length > 0) {
+        await prisma.reconciliationException.updateMany({
+          where: {
+            id: { in: ids },
+            shop: session.shop,
+          },
           data: {
-            status: "OPEN",
-            resolvedAt: null,
-            resolutionReason: null,
-            resolvedBy: null,
+            status: "RESOLVED",
+            resolvedAt: new Date(),
+            resolutionReason: bulkReason,
+            resolvedBy: session.shop,
           },
         });
-        return { success: true, intent: "reopen" };
-      } catch (error) {
-        console.error("Backend: Prisma DB Error during reopen:", error);
-        return { success: false, error: String(error) };
+      }
+      return { success: true, intent: "bulk_resolve" };
+    }
+
+    if (intent === "reopen") {
+      const id = formData.get("id");
+      console.log("Backend: Attempting DB update for Reopen ID:", id);
+      if (id) {
+        try {
+          await prisma.reconciliationException.update({
+            where: { id: String(id) },
+            data: {
+              status: "OPEN",
+              resolvedAt: null,
+              resolutionReason: null,
+              resolvedBy: null,
+            },
+          });
+          return { success: true, intent: "reopen" };
+        } catch (error) {
+          console.error("Backend: Prisma DB Error during reopen:", error);
+          return { success: false, error: String(error) };
+        }
       }
     }
-  }
 
-  if (intent === "sync") {
-    let settings = await prisma.shopSettings.findUnique({
-      where: { shop: session.shop },
-    });
-
-    if (!settings) {
-      settings = await prisma.shopSettings.create({
-        data: { shop: session.shop },
+    if (intent === "sync") {
+      let settings = await prisma.shopSettings.findUnique({
+        where: { shop: session.shop },
       });
-    }
 
-    if (settings.planType === "FREE" && settings.lastManualScanAt) {
-      const elapsed = Date.now() - new Date(settings.lastManualScanAt).getTime();
-      if (elapsed < 86400000) {
-        return { success: false, error: "Cooldown active", remainingTime: 86400000 - elapsed };
+      if (!settings) {
+        settings = await prisma.shopSettings.create({
+          data: { shop: session.shop },
+        });
       }
+
+      if (settings.planType === "FREE" && settings.lastManualScanAt) {
+        const elapsed = Date.now() - new Date(settings.lastManualScanAt).getTime();
+        if (elapsed < 86400000) {
+          return { success: false, error: "Cooldown active", remainingTime: 86400000 - elapsed };
+        }
+      }
+
+      console.log("🚀 SCAN INITIATED! Fetching orders from Shopify...");
+      const result = await runReconciliationScan(admin, session.shop);
+      console.log("✅ SCAN COMPLETE! Found:", result);
+
+      await prisma.shopSettings.update({
+        where: { shop: session.shop },
+        data: { lastManualScanAt: new Date() },
+      });
+
+      return { success: true, result };
     }
 
-    console.log("🚀 SCAN INITIATED! Fetching orders from Shopify...");
-    const result = await runReconciliationScan(admin, session.shop);
-    console.log("✅ SCAN COMPLETE! Found:", result);
-
-    await prisma.shopSettings.update({
-      where: { shop: session.shop },
-      data: { lastManualScanAt: new Date() },
-    });
-
-    return { success: true, result };
+    console.error("Missing or invalid intent:", intent);
+    throw new Response("Bad Request", { status: 400 });
+  } catch (error) {
+    console.error("Database Action Error:", error);
+    return Response.json({ success: false, error: "Database transaction failed" }, { status: 500 });
   }
-
-  console.error("Missing or invalid intent:", intent);
-  throw new Response("Bad Request", { status: 400 });
 };
 
 
@@ -343,7 +348,8 @@ export default function Index() {
       const q = queryValue.toLowerCase();
       const orderMatch = ex.orderName.toLowerCase().includes(q);
       const skuMatch = (ex.sku || "").toLowerCase().includes(q);
-      if (!orderMatch && !skuMatch) return false;
+      const itemMatch = (ex.itemName || "").toLowerCase().includes(q);
+      if (!orderMatch && !skuMatch && !itemMatch) return false;
     }
 
     if (minExposure && !isNaN(Number(minExposure))) {
@@ -411,6 +417,9 @@ export default function Index() {
 
   const openExceptions = exceptions.filter(ex => ex.status === "OPEN");
   const openExceptionsCount = openExceptions.length;
+  const resolvedExceptionsCount = exceptions.length - openExceptionsCount;
+
+  const formatBadge = (count: number) => count > 99 ? '99+' : count.toString();
   const estimatedCostExposure = openExceptions.reduce((acc, ex) => acc + Number(ex.estimatedExposure), 0);
   const missingItems = openExceptions.reduce((acc, ex) => acc + ex.discrepancyQuantity, 0);
 
@@ -527,7 +536,7 @@ export default function Index() {
                   ]}
                   sortSelected={sortSelected}
                   queryValue={queryValue}
-                  queryPlaceholder="Search by order ID or SKU"
+                  queryPlaceholder="Search orders, items, or SKUs"
                   onQueryChange={handleSearchChange}
                   onQueryClear={() => handleSearchChange('')}
                   onSort={setSortSelected}
@@ -540,10 +549,15 @@ export default function Index() {
                     {
                       id: 'open',
                       content: 'Action Required',
-                      badge: openExceptionsCount > 0 ? openExceptionsCount.toString() : undefined,
+                      badge: openExceptionsCount > 0 ? formatBadge(openExceptionsCount) : undefined,
                       accessibilityLabel: 'Open exceptions'
                     },
-                    { id: 'resolved', content: 'Audit History', accessibilityLabel: 'Resolved exceptions' },
+                    { 
+                      id: 'resolved', 
+                      content: 'Audit History', 
+                      badge: resolvedExceptionsCount > 0 ? formatBadge(resolvedExceptionsCount) : undefined,
+                      accessibilityLabel: 'Resolved exceptions' 
+                    },
                   ]}
                   selected={selectedTab}
                   onSelect={handleTabChange}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Select } from "@shopify/polaris";
+import { Modal, Select, TextField, BlockStack } from "@shopify/polaris";
 
 interface BulkResolveModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ export function BulkResolveModal({
   fetcher,
 }: BulkResolveModalProps) {
   const [bulkReason, setBulkReason] = useState("Restocked");
+  const [customReason, setCustomReason] = useState("");
 
   return (
     <Modal
@@ -25,12 +26,19 @@ export function BulkResolveModal({
       onClose={onClose}
       title="Resolve Multiple Exceptions"
       primaryAction={{
-        content: 'Resolve',
+        content: "Resolve",
         onAction: () => {
           const formData = new FormData();
           formData.append("intent", "bulk_resolve");
           formData.append("ids", JSON.stringify(selectedIds));
-          formData.append("bulkReason", bulkReason);
+
+          // Determine the final reason string to send to the database
+          const finalReason =
+            bulkReason === "Other" && customReason.trim() !== ""
+              ? customReason
+              : bulkReason;
+
+          formData.append("bulkReason", finalReason);
           fetcher.submit(formData, { method: "POST", action: "?index" });
           onClose();
         },
@@ -38,23 +46,35 @@ export function BulkResolveModal({
       }}
       secondaryActions={[
         {
-          content: 'Cancel',
+          content: "Cancel",
           onAction: onClose,
         },
       ]}
     >
       <Modal.Section>
-        <Select
-          label="Resolution Reason"
-          options={[
-            { label: "Restocked", value: "Restocked" },
-            { label: "Manual adjustment", value: "Manual adjustment" },
-            { label: "False positive", value: "False positive" },
-            { label: "Other", value: "Other" },
-          ]}
-          value={bulkReason}
-          onChange={setBulkReason}
-        />
+        <BlockStack gap="400">
+          <Select
+            label="Resolution Reason"
+            options={[
+              { label: "Restocked", value: "Restocked" },
+              { label: "Manual adjustment", value: "Manual adjustment" },
+              { label: "False positive", value: "False positive" },
+              { label: "Other", value: "Other" },
+            ]}
+            value={bulkReason}
+            onChange={setBulkReason}
+          />
+          {bulkReason === "Other" && (
+            <TextField
+              label="Custom Reason"
+              value={customReason}
+              onChange={setCustomReason}
+              autoComplete="off"
+              maxLength={25}
+              showCharacterCount
+            />
+          )}
+        </BlockStack>
       </Modal.Section>
     </Modal>
   );

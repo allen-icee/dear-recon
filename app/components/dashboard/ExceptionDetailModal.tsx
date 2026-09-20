@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { BlockStack, Text, Grid, Button, ChoiceList, InlineStack, Box, Modal } from "@shopify/polaris";
-import { useSubmit } from "react-router";
+import { useState, useEffect } from "react";
+import { BlockStack, Text, Grid, Button, ChoiceList, InlineStack, Box, Modal, TextField } from "@shopify/polaris";
+import { useFetcher } from "react-router";
+import { useAppBridge } from "@shopify/app-bridge-react";
 
 export interface ExceptionUI {
   id: string;
@@ -40,23 +41,30 @@ export function ExceptionDetailModal({
   isResolving,
 }: ExceptionDetailModalProps) {
   const [resolutionReason, setResolutionReason] = useState<string[]>(["Restocked"]);
-  const submit = useSubmit();
+  const [customReason, setCustomReason] = useState("");
+  const fetcher = useFetcher<any>();
+  const shopify = useAppBridge();
+
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data?.success) {
+      shopify.toast.show(fetcher.data.intent === 'resolve' ? 'Exception resolved' : 'Exception reopened');
+      const modal = document.getElementById('exception-detail-modal') as any;
+      modal?.hide();
+      onClose();
+    }
+  }, [fetcher.state, fetcher.data]);
 
   const handleResolveSubmit = () => {
     if (activeException) {
-      submit(
+      const reasonToSubmit = resolutionReason[0] === 'Other' ? customReason : resolutionReason[0];
+      fetcher.submit(
         { 
           intent: 'resolve', 
           exceptionId: activeException.id, 
-          resolutionReason: resolutionReason[0] 
+          resolutionReason: reasonToSubmit 
         }, 
         { method: 'post', action: '?index' }
       );
-      setTimeout(() => {
-        const modal = document.getElementById('exception-detail-modal') as any;
-        modal?.hide();
-        onClose();
-      }, 150);
     }
   };
 
@@ -106,17 +114,29 @@ export function ExceptionDetailModal({
             </BlockStack>
 
             {activeException.status === "OPEN" ? (
-              <ChoiceList
-                title="Resolution Reason"
-                choices={[
-                  { label: "Restocked", value: "Restocked" },
-                  { label: "Manual adjustment", value: "Manual adjustment" },
-                  { label: "False positive", value: "False positive" },
-                  { label: "Other", value: "Other" },
-                ]}
-                selected={resolutionReason}
-                onChange={setResolutionReason}
-              />
+              <BlockStack gap="400">
+                <ChoiceList
+                  title="Resolution Reason"
+                  choices={[
+                    { label: "Restocked", value: "Restocked" },
+                    { label: "Manual adjustment", value: "Manual adjustment" },
+                    { label: "False positive", value: "False positive" },
+                    { label: "Other", value: "Other" },
+                  ]}
+                  selected={resolutionReason}
+                  onChange={setResolutionReason}
+                />
+                {resolutionReason[0] === "Other" && (
+                  <TextField
+                    label="Specify Reason"
+                    value={customReason}
+                    onChange={setCustomReason}
+                    maxLength={25}
+                    showCharacterCount
+                    autoComplete="off"
+                  />
+                )}
+              </BlockStack>
             ) : (
               <BlockStack gap="200">
                 <Text variant="headingMd" as="h3">
@@ -140,23 +160,6 @@ export function ExceptionDetailModal({
                     )}
                   </BlockStack>
                 </Box>
-                {onReopen && (
-                  <Button 
-                    variant="primary"
-                    tone="critical" 
-                    onClick={() => { 
-                      onReopen(activeException.id); 
-                      setTimeout(() => {
-                        const modal = document.getElementById('exception-detail-modal') as any;
-                        modal?.hide();
-                        onClose();
-                      }, 150);
-                    }}
-                    loading={isResolving}
-                  >
-                    Reopen Exception
-                  </Button>
-                )}
               </BlockStack>
             )}
 
@@ -167,8 +170,23 @@ export function ExceptionDetailModal({
               >
                 Open Order in Shopify
               </Button>
+              {activeException.status !== "OPEN" && onReopen && (
+                <Button 
+                  variant="primary"
+                  tone="critical" 
+                  onClick={() => {
+                    fetcher.submit(
+                      { intent: 'reopen', id: activeException.id }, 
+                      { method: 'post', action: '?index' }
+                    );
+                  }}
+                  loading={fetcher.state !== 'idle'}
+                >
+                  Reopen Exception
+                </Button>
+              )}
               {activeException.status === "OPEN" && (
-                <Button variant="primary" onClick={handleResolveSubmit} loading={isResolving}>
+                <Button variant="primary" onClick={handleResolveSubmit} loading={fetcher.state !== 'idle'}>
                   Submit Resolution
                 </Button>
               )}
