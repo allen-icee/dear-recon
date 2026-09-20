@@ -10,6 +10,7 @@ export default {
     "*.myshopify.com",
     "*.spin.dev",
     "*.trycloudflare.com",
+    "*.onrender.com",
     "null"
   ],
 } satisfies Config;
