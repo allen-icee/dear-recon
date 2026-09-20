@@ -174,7 +174,7 @@ export const RECONCILIATION_QUERY = `
  * @param settings - Merchant configuration settings (e.g. minimumExposure)
  * @returns The number of new exceptions generated
  */
-export async function processOrderReconciliation(order: any, shop: string, settings: { minimumExposure: number }) {
+export async function processOrderReconciliation(order: any, shop: string, settings: { minimumExposure: number, autoTagOrders?: boolean, autoResolveExceptions?: boolean }, admin?: AdminApiContext) {
   let exceptionsCount = 0;
   const lineItems = order.lineItems.edges.map((e: any) => e.node);
   const refundMap = new Map<string, number>();
@@ -243,6 +243,49 @@ export async function processOrderReconciliation(order: any, shop: string, setti
         }
       });
       exceptionsCount++;
+
+      if (settings.autoTagOrders && admin) {
+        try {
+          await admin.graphql(
+            `mutation tagsAdd($id: ID!, $tags: [String!]!) {
+              tagsAdd(id: $id, tags: $tags) {
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }`,
+            {
+              variables: {
+                id: order.id,
+                tags: ["DearRecon: Exception"],
+              },
+            }
+          );
+        } catch (error) {
+          console.error(`Failed to auto-tag order ${order.id}:`, error);
+        }
+      }
+
+      } else if (settings.autoResolveExceptions) {
+        await prisma.reconciliationException.updateMany({
+          where: { 
+            shop, 
+            orderId: order.id, 
+            lineItemId: lineItem.id,
+            status: "OPEN"
+          },
+          data: {
+            status: "RESOLVED",
+            resolvedAt: new Date(),
+            resolutionReason: "Auto-resolved (Below exposure threshold)",
+            resolvedBy: "System",
+            refundQuantity,
+            returnQuantity,
+            discrepancyQuantity,
+            estimatedExposure: exposure.toDecimal(),
+          }
+        });
       }
     } else if (discrepancyQuantity <= 0) {
       await prisma.reconciliationException.updateMany({
@@ -277,6 +320,8 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
   const settings = {
     minimumExposure: dbSettings?.minimumExposure?.toNumber() || 0,
     lookbackDays: dbSettings?.lookbackDays || 30,
+    autoTagOrders: dbSettings?.autoTagOrders || false,
+    autoResolveExceptions: dbSettings?.autoResolveExceptions || false,
   };
 
   if (!query) {
@@ -298,7 +343,7 @@ export async function runReconciliationScan(admin: AdminApiContext, shop: string
   let exceptionsCount = 0;
 
   for (const order of orders) {
-    exceptionsCount += await processOrderReconciliation(order, shop, settings);
+    exceptionsCount += await processOrderReconciliation(order, shop, settings, admin);
   }
 
   return { scannedOrders: orders.length, exceptionsCount };
@@ -311,6 +356,8 @@ export async function runTargetedReconciliationScan(admin: AdminApiContext, shop
   const dbSettings = await prisma.shopSettings.findUnique({ where: { shop } });
   const settings = {
     minimumExposure: dbSettings?.minimumExposure?.toNumber() || 0,
+    autoTagOrders: dbSettings?.autoTagOrders || false,
+    autoResolveExceptions: dbSettings?.autoResolveExceptions || false,
   };
 
   const response = await admin.graphql(TARGETED_RECONCILIATION_QUERY, {
@@ -328,7 +375,7 @@ export async function runTargetedReconciliationScan(admin: AdminApiContext, shop
     return { scannedOrders: 0, exceptionsCount: 0 };
   }
 
-  const exceptionsCount = await processOrderReconciliation(order, shop, settings);
+  const exceptionsCount = await processOrderReconciliation(order, shop, settings, admin);
 
   return { scannedOrders: 1, exceptionsCount };
 }
