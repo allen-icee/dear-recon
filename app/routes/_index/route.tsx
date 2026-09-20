@@ -21,9 +21,9 @@ export default function App() {
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>DearRecon</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          Automated inventory reconciliation for Shopify refunds.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -39,16 +39,13 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Automated Real-Time Auditing</strong>. Background webhooks catch missing returns the second a refund is issued.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Financial Exposure Tracking</strong>. Instantly see the exact dollar amount of un-restocked inventory at risk.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>One-Click Resolution</strong>. Mark discrepancies as resolved, write off losses, or clear historical items natively.
           </li>
         </ul>
       </div>
