@@ -13,7 +13,9 @@ import {
   PageActions,
   FooterHelp,
   Link,
-  Text
+  Text,
+  InlineStack,
+  Button
 } from "@shopify/polaris";
 import prisma from "../db.server";
 import { useState, useCallback } from "react";
@@ -24,7 +26,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = session.shop;
 
   let settings = await prisma.shopSettings.findUnique({ where: { shop } });
-  
+
   if (!settings) {
     settings = {
       id: "default",
@@ -41,17 +43,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   }
 
-  return { 
-    settings: { ...settings, minimumExposure: settings.minimumExposure.toString() },
-    planType: settings.planType
-  };
+  return { settings: { ...settings, minimumExposure: settings.minimumExposure.toString() } };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
-  
+
   const formData = await request.formData();
   const minimumExposure = formData.get("minimumExposure");
   const lookbackDays = formData.get("lookbackDays");
@@ -82,11 +81,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Settings() {
-  const { settings, planType } = useLoaderData<typeof loader>();
+  const { settings } = useLoaderData<typeof loader>();
   const submit = useSubmit();
   const nav = useNavigation();
   const isSaving = nav.state === "submitting";
-  const isFree = planType === "FREE";
 
   const [minimumExposure, setMinimumExposure] = useState(settings.minimumExposure);
   const [lookbackDays, setLookbackDays] = useState(settings.lookbackDays?.toString() || "30");
@@ -94,8 +92,8 @@ export default function Settings() {
   const [autoResolveExceptions, setAutoResolveExceptions] = useState(settings.autoResolveExceptions);
   const [dailySummaryEmails, setDailySummaryEmails] = useState(settings.dailySummaryEmails);
 
-  const isDirty = 
-    minimumExposure !== settings.minimumExposure || 
+  const isDirty =
+    minimumExposure !== settings.minimumExposure ||
     lookbackDays !== (settings.lookbackDays?.toString() || "30") ||
     autoTagOrders !== settings.autoTagOrders ||
     autoResolveExceptions !== settings.autoResolveExceptions ||
@@ -103,9 +101,9 @@ export default function Settings() {
 
   const handleSave = useCallback(() => {
     submit(
-      { 
-        minimumExposure, 
-        lookbackDays, 
+      {
+        minimumExposure,
+        lookbackDays,
         autoTagOrders: autoTagOrders ? "true" : "false",
         autoResolveExceptions: autoResolveExceptions ? "true" : "false",
         dailySummaryEmails: dailySummaryEmails ? "true" : "false"
@@ -115,7 +113,7 @@ export default function Settings() {
   }, [minimumExposure, lookbackDays, autoTagOrders, autoResolveExceptions, dailySummaryEmails, submit]);
 
   return (
-    <Page 
+    <Page
       title="Settings"
       subtitle="Configure how DearRecon scans and automates your store."
       backAction={{ content: 'Dashboard', url: '/app' }}
@@ -161,37 +159,23 @@ export default function Settings() {
         >
           <Card>
             <BlockStack gap="400">
-              {isFree && (
-                <Card background="bg-surface-warning">
-                  <BlockStack gap="200">
-                    <Text variant="headingSm" as="h3">Pro Feature</Text>
-                    <Text as="p">Upgrade to the Pro plan to unlock automations and background workflows.</Text>
-                    <InlineStack>
-                      <Button url="/app/pricing" size="micro">Upgrade</Button>
-                    </InlineStack>
-                  </BlockStack>
-                </Card>
-              )}
               <Checkbox
                 label="Auto-tag Shopify Orders"
                 helpText="Automatically add a 'DearRecon: Exception' tag to Shopify orders when a discrepancy is detected."
                 checked={autoTagOrders}
                 onChange={setAutoTagOrders}
-                disabled={isFree}
               />
               <Checkbox
                 label="Auto-resolve Minor Exceptions"
                 helpText="Automatically resolve and clear exceptions that fall below your minimum exposure threshold."
                 checked={autoResolveExceptions}
                 onChange={setAutoResolveExceptions}
-                disabled={isFree}
               />
               <Checkbox
                 label="Daily Summary Emails"
                 helpText="Receive a daily digest email outlining any new discrepancies found by the background scanner."
                 checked={dailySummaryEmails}
                 onChange={setDailySummaryEmails}
-                disabled={isFree}
               />
             </BlockStack>
           </Card>
@@ -207,11 +191,11 @@ export default function Settings() {
             }}
           />
         </Layout.Section>
-        
+
         <Layout.Section>
           <FooterHelp>
             <Text as="span">Need help? Email us at </Text>
-            <Link url="mailto:support@dearrecon.com">support@dearrecon.com</Link>. 
+            <Link url="mailto:support@dearrecon.com">support@dearrecon.com</Link>.
             <Text as="span"> View our </Text>
             <Link url="https://dearrecon.com/privacy-policy" target="_blank">Privacy Policy</Link>
             <Text as="span"> and </Text>
