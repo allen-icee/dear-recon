@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useSubmit, useNavigation } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, useActionData } from "react-router";
 import { authenticate } from "../shopify.server";
 import {
   Page,
@@ -18,7 +18,7 @@ import {
   Button
 } from "@shopify/polaris";
 import prisma from "../db.server";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -84,6 +84,7 @@ export default function Settings() {
   const { settings } = useLoaderData<typeof loader>();
   const submit = useSubmit();
   const nav = useNavigation();
+  const actionData = useActionData<typeof action>();
   const isSaving = nav.state === "submitting";
 
   const [minimumExposure, setMinimumExposure] = useState(settings.minimumExposure);
@@ -98,6 +99,12 @@ export default function Settings() {
     autoTagOrders !== settings.autoTagOrders ||
     autoResolveExceptions !== settings.autoResolveExceptions ||
     dailySummaryEmails !== settings.dailySummaryEmails;
+
+  useEffect(() => {
+    if (actionData?.success && typeof shopify !== "undefined") {
+      shopify.toast.show("Settings saved successfully");
+    }
+  }, [actionData]);
 
   const handleSave = useCallback(() => {
     submit(
@@ -197,9 +204,7 @@ export default function Settings() {
             <Text as="span">Need help? Email us at </Text>
             <Link url="mailto:support@dearrecon.com">support@dearrecon.com</Link>.
             <Text as="span"> View our </Text>
-            <Link url="https://dearrecon.com/privacy-policy" target="_blank">Privacy Policy</Link>
-            <Text as="span"> and </Text>
-            <Link url="https://dearrecon.com/terms-of-service" target="_blank">Terms of Service</Link>.
+            <Link url="https://dear-recon.onrender.com/privacy" target="_blank">Privacy Policy</Link>.
           </FooterHelp>
         </Layout.Section>
       </Layout>

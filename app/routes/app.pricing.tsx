@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useSubmit, useNavigation, Form, useActionData } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, Form, useActionData, useSearchParams } from "react-router";
 import { useEffect, useState, useCallback } from "react";
 
 import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid, Modal } from "@shopify/polaris";
@@ -55,7 +55,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     }
 
-    return redirect("/app/pricing");
+    return redirect("/app/pricing?success=downgraded");
   }
 
   if (intent === "upgrade") {
@@ -88,6 +88,15 @@ export default function Pricing() {
       window.open(actionData.redirectUrl, "_top");
     }
   }, [actionData]);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get("success") === "downgraded" && typeof shopify !== "undefined") {
+      shopify.toast.show("Successfully downgraded to the Free plan");
+      setSearchParams(new URLSearchParams());
+    }
+  }, [searchParams, setSearchParams]);
 
   const isUpgrading = nav.state === "submitting" && nav.formData?.get("intent") === "upgrade";
   const isDowngrading = nav.state === "submitting" && nav.formData?.get("intent") === "downgrade";
