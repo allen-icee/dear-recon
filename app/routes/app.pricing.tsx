@@ -182,6 +182,8 @@ export default function Pricing() {
                     <List.Item>
                       <Text as="span" fontWeight="bold">Real-time background sync (Webhooks)</Text>
                     </List.Item>
+                    <List.Item>Automated Order Tagging</List.Item>
+                    <List.Item>Auto-resolve minor exceptions</List.Item>
                     <List.Item>Unlimited manual scans</List.Item>
                     <List.Item>Priority support</List.Item>
                     <List.Item>CSV Data Exports</List.Item>
