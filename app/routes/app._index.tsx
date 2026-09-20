@@ -28,6 +28,7 @@ import {
   Modal,
   Select,
   Frame,
+  FooterHelp,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate, PRO_PLAN } from "../shopify.server";
@@ -651,6 +652,14 @@ export default function Index() {
                 </Box>
               </Card>
             </BlockStack>
+          </Layout.Section>
+          <Layout.Section>
+            <FooterHelp>
+              <Text as="span">Need help? Email us at </Text>
+              <Text as="span" fontWeight="bold">support.dearrecon@gmail.com</Text>.
+              <Text as="span"> View our </Text>
+              <Link url="https://dear-recon.onrender.com/privacy" target="_blank">Privacy Policy</Link>.
+            </FooterHelp>
           </Layout.Section>
         </Layout>
       </BlockStack>

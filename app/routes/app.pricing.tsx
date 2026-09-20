@@ -2,7 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit, useNavigation, Form, useActionData, useSearchParams } from "react-router";
 import { useEffect, useState, useCallback } from "react";
 
-import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid, Modal } from "@shopify/polaris";
+import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid, Modal, FooterHelp, Link } from "@shopify/polaris";
 import { authenticate, PRO_PLAN } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -204,6 +204,14 @@ export default function Pricing() {
               </Card>
             </Grid.Cell>
           </Grid>
+        </Layout.Section>
+        <Layout.Section>
+          <FooterHelp>
+            <Text as="span">Need help? Email us at </Text>
+            <Text as="span" fontWeight="bold">support.dearrecon@gmail.com</Text>.
+            <Text as="span"> View our </Text>
+            <Link url="https://dear-recon.onrender.com/privacy" target="_blank">Privacy Policy</Link>.
+          </FooterHelp>
         </Layout.Section>
       </Layout>
     </Page>

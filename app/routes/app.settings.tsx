@@ -141,7 +141,6 @@ export default function Settings() {
     <Page
       title="Settings"
       subtitle="Configure how DearRecon scans and automates your store."
-      backAction={{ content: 'Dashboard', url: '/app' }}
     >
       <Layout>
         <Layout.AnnotatedSection
