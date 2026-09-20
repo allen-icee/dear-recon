@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useSubmit, useNavigation, Form, useActionData, useSearchParams } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, Form, useActionData } from "react-router";
 import { useEffect, useState, useCallback } from "react";
 
 import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid, Modal, FooterHelp, Link } from "@shopify/polaris";
@@ -53,9 +53,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         isTest: true,
         prorate: true,
       });
+
+      await prisma.shopSettings.update({
+        where: { shop: session.shop },
+        data: { planType: "FREE" }
+      });
     }
 
-    return redirect("/app/pricing?success=downgraded");
+    return Response.json({ success: "downgraded" });
   }
 
   if (intent === "upgrade") {
@@ -89,14 +94,11 @@ export default function Pricing() {
     }
   }, [actionData]);
 
-  const [searchParams, setSearchParams] = useSearchParams();
-
   useEffect(() => {
-    if (searchParams.get("success") === "downgraded" && typeof shopify !== "undefined") {
+    if (actionData?.success === "downgraded" && typeof shopify !== "undefined") {
       shopify.toast.show("Successfully downgraded to the Free plan");
-      setSearchParams(new URLSearchParams());
     }
-  }, [searchParams, setSearchParams]);
+  }, [actionData]);
 
   const isUpgrading = nav.state === "submitting" && nav.formData?.get("intent") === "upgrade";
   const isDowngrading = nav.state === "submitting" && nav.formData?.get("intent") === "downgrade";
