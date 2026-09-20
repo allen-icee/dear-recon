@@ -50,7 +50,7 @@ export function ExceptionDetailModal({
           exceptionId: activeException.id, 
           resolutionReason: resolutionReason[0] 
         }, 
-        { method: 'post', action: '/app' }
+        { method: 'post', action: '?index' }
       );
       setTimeout(() => {
         const modal = document.getElementById('exception-detail-modal') as any;
