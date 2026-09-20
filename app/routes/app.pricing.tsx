@@ -184,7 +184,6 @@ export default function Pricing() {
                     </List.Item>
                     <List.Item>Automated Order Tagging</List.Item>
                     <List.Item>Auto-resolve minor exceptions</List.Item>
-                    <List.Item>Daily Summary Emails</List.Item>
                     <List.Item>Unlimited manual scans</List.Item>
                     <List.Item>Priority support</List.Item>
                     <List.Item>CSV Data Exports</List.Item>

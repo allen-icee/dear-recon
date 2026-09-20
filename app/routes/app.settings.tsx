@@ -59,7 +59,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const lookbackDays = formData.get("lookbackDays");
   const autoTagOrders = formData.get("autoTagOrders") === "true";
   const autoResolveExceptions = formData.get("autoResolveExceptions") === "true";
-  const dailySummaryEmails = formData.get("dailySummaryEmails") === "true";
 
   await prisma.shopSettings.upsert({
     where: { shop },
@@ -68,7 +67,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       lookbackDays: lookbackDays ? Number(lookbackDays) : 30,
       autoTagOrders,
       autoResolveExceptions,
-      dailySummaryEmails,
     },
     create: {
       shop,
@@ -76,7 +74,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       lookbackDays: lookbackDays ? Number(lookbackDays) : 30,
       autoTagOrders,
       autoResolveExceptions,
-      dailySummaryEmails,
     }
   });
 
@@ -95,14 +92,12 @@ export default function Settings() {
   const [lookbackDays, setLookbackDays] = useState(settings.lookbackDays?.toString() || "30");
   const [autoTagOrders, setAutoTagOrders] = useState(settings.autoTagOrders);
   const [autoResolveExceptions, setAutoResolveExceptions] = useState(settings.autoResolveExceptions);
-  const [dailySummaryEmails, setDailySummaryEmails] = useState(settings.dailySummaryEmails);
 
   const isDirty =
     minimumExposure !== settings.minimumExposure ||
     lookbackDays !== (settings.lookbackDays?.toString() || "30") ||
     autoTagOrders !== settings.autoTagOrders ||
-    autoResolveExceptions !== settings.autoResolveExceptions ||
-    dailySummaryEmails !== settings.dailySummaryEmails;
+    autoResolveExceptions !== settings.autoResolveExceptions;
 
   useEffect(() => {
     if (actionData?.success && typeof shopify !== "undefined") {
@@ -117,11 +112,10 @@ export default function Settings() {
         lookbackDays,
         autoTagOrders: autoTagOrders ? "true" : "false",
         autoResolveExceptions: autoResolveExceptions ? "true" : "false",
-        dailySummaryEmails: dailySummaryEmails ? "true" : "false"
       },
       { method: "post" }
     );
-  }, [minimumExposure, lookbackDays, autoTagOrders, autoResolveExceptions, dailySummaryEmails, submit]);
+  }, [minimumExposure, lookbackDays, autoTagOrders, autoResolveExceptions, submit]);
 
   return (
     <Page
@@ -193,12 +187,6 @@ export default function Settings() {
                     helpText="Automatically resolve and clear exceptions that fall below your minimum exposure threshold."
                     checked={autoResolveExceptions}
                     onChange={setAutoResolveExceptions}
-                  />
-                  <Checkbox
-                    label="Daily Summary Emails"
-                    helpText="Receive a daily digest email outlining any new discrepancies found by the background scanner."
-                    checked={dailySummaryEmails}
-                    onChange={setDailySummaryEmails}
                   />
                 </>
               )}
