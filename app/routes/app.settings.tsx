@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useSubmit, useNavigation, useActionData } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, useActionData, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
 import {
   Page,
@@ -84,6 +84,7 @@ export default function Settings() {
   const { settings, planType } = useLoaderData<typeof loader>();
   const submit = useSubmit();
   const nav = useNavigation();
+  const navigate = useNavigate();
   const actionData = useActionData<typeof action>();
   const isSaving = nav.state === "submitting";
   const isFree = planType === "FREE";
@@ -170,7 +171,7 @@ export default function Settings() {
                     <Text variant="headingSm" as="h3">Pro Feature</Text>
                     <Text as="p">Upgrade to the Pro plan to unlock automations and background workflows.</Text>
                     <InlineStack>
-                      <Button url="/app/pricing" size="micro">Upgrade</Button>
+                      <Button onClick={() => navigate("/app/pricing")} size="micro">Upgrade</Button>
                     </InlineStack>
                   </BlockStack>
                 </Card>
@@ -208,7 +209,7 @@ export default function Settings() {
         <Layout.Section>
           <FooterHelp>
             <Text as="span">Need help? Email us at </Text>
-            <Text as="span" fontWeight="bold">support@dearrecon.com</Text>.
+            <Text as="span" fontWeight="bold">support.dearrecon@gmail.com</Text>.
             <Text as="span"> View our </Text>
             <Link url="https://dear-recon.onrender.com/privacy" target="_blank">Privacy Policy</Link>.
           </FooterHelp>
