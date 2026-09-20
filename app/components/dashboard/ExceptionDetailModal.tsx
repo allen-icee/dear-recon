@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BlockStack, Text, Grid, Button, ChoiceList, InlineStack, Box, Modal } from "@shopify/polaris";
+import { useSubmit } from "react-router";
 
 export interface ExceptionUI {
   id: string;
@@ -39,10 +40,18 @@ export function ExceptionDetailModal({
   isResolving,
 }: ExceptionDetailModalProps) {
   const [resolutionReason, setResolutionReason] = useState<string[]>(["Restocked"]);
+  const submit = useSubmit();
 
   const handleResolveSubmit = () => {
     if (activeException) {
-      onResolve(activeException.id, resolutionReason[0]);
+      submit(
+        { 
+          intent: 'resolve', 
+          exceptionId: activeException.id, 
+          resolutionReason: resolutionReason[0] 
+        }, 
+        { method: 'post', action: '/app' }
+      );
       setTimeout(() => {
         const modal = document.getElementById('exception-detail-modal') as any;
         modal?.hide();
