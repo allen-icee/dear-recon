@@ -1,8 +1,8 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit, useNavigation, Form, useActionData } from "react-router";
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 
-import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid } from "@shopify/polaris";
+import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid, Modal } from "@shopify/polaris";
 import { authenticate, PRO_PLAN } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -89,11 +89,19 @@ export default function Pricing() {
     }
   }, [actionData]);
 
-  const handleUpgrade = () => {
-    submit({}, { method: "post" });
-  };
+  const isUpgrading = nav.state === "submitting" && nav.formData?.get("intent") === "upgrade";
+  const isDowngrading = nav.state === "submitting" && nav.formData?.get("intent") === "downgrade";
 
-  const isUpgrading = nav.state === "submitting";
+  const [isDowngradeModalOpen, setIsDowngradeModalOpen] = useState(false);
+
+  const toggleDowngradeModal = useCallback(() => {
+    setIsDowngradeModalOpen((active) => !active);
+  }, []);
+
+  const handleDowngrade = useCallback(() => {
+    submit({ intent: "downgrade" }, { method: "post" });
+    setIsDowngradeModalOpen(false);
+  }, [submit]);
 
   return (
     <Page title="Pricing & Plans">
@@ -118,10 +126,31 @@ export default function Pricing() {
                     {planType === "FREE" ? (
                       <Button disabled size="large" fullWidth>Current Plan</Button>
                     ) : (
-                      <Form method="post">
-                        <input type="hidden" name="intent" value="downgrade" />
-                        <Button submit size="large" fullWidth>Downgrade to Free</Button>
-                      </Form>
+                      <>
+                        <Button onClick={toggleDowngradeModal} loading={isDowngrading} size="large" fullWidth>Downgrade to Free</Button>
+                        <Modal
+                          open={isDowngradeModalOpen}
+                          onClose={toggleDowngradeModal}
+                          title="Confirm Downgrade"
+                          primaryAction={{
+                            content: 'Downgrade',
+                            onAction: handleDowngrade,
+                            destructive: true,
+                          }}
+                          secondaryActions={[
+                            {
+                              content: 'Cancel',
+                              onAction: toggleDowngradeModal,
+                            },
+                          ]}
+                        >
+                          <Modal.Section>
+                            <Text as="p">
+                              Are you sure you want to downgrade to the Standard Free plan? You will immediately lose access to background syncs, unlimited scans, and CSV exports.
+                            </Text>
+                          </Modal.Section>
+                        </Modal>
+                      </>
                     )}
                   </Box>
                 </BlockStack>
