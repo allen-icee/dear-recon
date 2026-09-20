@@ -100,7 +100,7 @@ export default function Pricing() {
                     {planType === "FREE" ? (
                       <Button disabled size="large" fullWidth>Current Plan</Button>
                     ) : (
-                      <Form method="post" reloadDocument>
+                      <Form method="post">
                         <input type="hidden" name="intent" value="downgrade" />
                         <Button submit size="large" fullWidth>Downgrade to Free</Button>
                       </Form>
@@ -134,7 +134,7 @@ export default function Pricing() {
                     {planType === "PRO" ? (
                       <Button disabled size="large" fullWidth>Current Plan</Button>
                     ) : (
-                      <Form method="post" reloadDocument>
+                      <Form method="post">
                         <input type="hidden" name="intent" value="upgrade" />
                         <Button submit variant="primary" loading={isUpgrading} size="large" fullWidth>
                           Upgrade to Pro
