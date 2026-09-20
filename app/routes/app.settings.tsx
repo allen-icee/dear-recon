@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit, useNavigation, useActionData, useNavigate } from "react-router";
-import { authenticate } from "../shopify.server";
+import { authenticate, PRO_PLAN } from "../shopify.server";
 import {
   Page,
   Layout,
@@ -22,10 +22,29 @@ import { useState, useCallback, useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { session, admin } = await authenticate.admin(request);
+  const { session, admin, billing } = await authenticate.admin(request);
   const shop = session.shop;
 
   let settings = await prisma.shopSettings.findUnique({ where: { shop } });
+
+  const billingCheck = await billing.check({
+    plans: [PRO_PLAN],
+    isTest: true,
+  });
+
+  const hasActiveSubscription = billingCheck.hasActivePayment;
+
+  if (hasActiveSubscription && settings?.planType !== "PRO") {
+    settings = await prisma.shopSettings.update({
+      where: { shop },
+      data: { planType: "PRO" }
+    });
+  } else if (!hasActiveSubscription && settings?.planType === "PRO") {
+    settings = await prisma.shopSettings.update({
+      where: { shop },
+      data: { planType: "FREE" }
+    });
+  }
 
   if (!settings) {
     settings = {
