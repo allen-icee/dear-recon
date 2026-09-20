@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useSubmit, useNavigation, Form } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, Form, useActionData } from "react-router";
+import { useEffect } from "react";
 
 import { Page, Layout, Card, Text, Button, BlockStack, InlineStack, List, Badge, Box, Grid } from "@shopify/polaris";
 import { authenticate, PRO_PLAN } from "../shopify.server";
@@ -58,10 +59,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (intent === "upgrade") {
-    await billing.request({ 
-      plan: "Pro Plan", 
-      isTest: true 
-    });
+    try {
+      await billing.request({ 
+        plan: "Pro Plan", 
+        isTest: true 
+      });
+    } catch (error: any) {
+      if (error instanceof Response && error.status === 401) {
+        const reauthUrl = error.headers.get("X-Shopify-API-Request-Failure-Reauthorize-Url");
+        if (reauthUrl) {
+          return { redirectUrl: reauthUrl };
+        }
+      }
+      throw error;
+    }
   }
   return null;
 };
@@ -70,6 +81,13 @@ export default function Pricing() {
   const { planType } = useLoaderData<typeof loader>();
   const submit = useSubmit();
   const nav = useNavigation();
+  const actionData = useActionData<any>();
+
+  useEffect(() => {
+    if (actionData?.redirectUrl) {
+      window.open(actionData.redirectUrl, "_top");
+    }
+  }, [actionData]);
 
   const handleUpgrade = () => {
     submit({}, { method: "post" });
