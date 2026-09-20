@@ -43,10 +43,13 @@ model ShopSettings {
   shop            String   @unique
   minimumExposure Decimal   @default(0)
   lookbackDays    Int       @default(30)
-  planType        String    @default("FREE")
-  lastManualScanAt DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  planType              String    @default("FREE")
+  lastManualScanAt      DateTime?
+  autoTagOrders         Boolean   @default(false)
+  autoResolveExceptions Boolean   @default(false)
+  dailySummaryEmails    Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 /// Core domain model: Records detailing identified discrepancies between order refunds and returns.
