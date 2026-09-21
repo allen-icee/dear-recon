@@ -37,7 +37,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { billing, redirect } = await authenticate.admin(request);
+  const { billing, redirect, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
